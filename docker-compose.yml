@@ -1,15 +1,12 @@
-version: '3.8'
-
 services:
   fichador:
     build: .
     container_name: fichador-holded
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8002:8000"
     volumes:
       - ./data:/app/data
-      - ./logs:/app/logs
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///./data/fichador.db
       - TZ=Europe/Madrid
@@ -17,40 +14,4 @@ services:
       - DISPLAY=:99
     env_file:
       - .env
-    depends_on:
-      - browser
-    shm_size: '2gb'
-
-  browser:
-    image: browserless/chrome:latest
-    container_name: fichador-browser
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-      - "8080:8080"
-    environment:
-      - CONNECTION_TIMEOUT=300
-      - MAX_CONCURRENT_SESSIONS=1
-      - PREBOOT_CHROME=true
-      - KEEP_ALIVE=true
-      - ENABLE_DEBUGGER=true
-      - DEBUG=:*
-
-  # Chrome with VNC for manual 2FA login
-  chrome-vnc:
-    image: linuxserver/chromium:latest
-    container_name: fichador-chrome-vnc
-    restart: unless-stopped
-    ports:
-      - "3001:3000"    # Chromium web interface
-      - "3002:3001"    # VNC
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Madrid
-      - CUSTOM_USER=holded
-      - CUSTOM_PASS=holded123
-    volumes:
-      - ./data/cookies:/config/chromium/Default/Cookies
-      - ./data/browser-data:/config/chromium
     shm_size: '2gb'

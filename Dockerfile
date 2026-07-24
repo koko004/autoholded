@@ -20,6 +20,8 @@ RUN apt-get update && apt-get install -y \
     libcairo2 \
     libasound2 \
     libatspi2.0-0 \
+    libcups2 \
+    libxfixes3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies

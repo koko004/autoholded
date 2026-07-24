@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     # Playwright
     HEADLESS: bool = True
     BROWSER_TIMEOUT: int = 60000  # 60 seconds
+    CHROMIUM_URL: Optional[str] = None
     
     class Config:
         env_file = ".env"
