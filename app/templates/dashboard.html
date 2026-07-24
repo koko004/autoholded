@@ -1,0 +1,478 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Fichador Holded{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <h1>Dashboard</h1>
+    
+    <div class="dashboard-grid">
+        <!-- Scheduler Status -->
+        <div class="card">
+            <h2>Estado del Scheduler</h2>
+            <div class="card-content">
+                <div class="status-indicator" id="scheduler-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Cargando...</span>
+                </div>
+                <div class="scheduler-info">
+                    <p><strong>Proximo fichaje:</strong> <span id="next-fichaje">--:--</span></p>
+                    <p><strong>Ultimo fichaje:</strong> <span id="last-fichaje">--:--</span></p>
+                </div>
+                <div class="scheduler-controls">
+                    <button class="btn btn-success" id="btn-start">Iniciar Scheduler</button>
+                    <button class="btn btn-danger" id="btn-stop">Detener Scheduler</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Today's Status -->
+        <div class="card">
+            <h2>Estado de Hoy</h2>
+            <div class="card-content">
+                <div class="today-status">
+                    <div class="status-item">
+                        <span class="label">Estado:</span>
+                        <span class="value" id="current-status">No iniciado</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">Entrada:</span>
+                        <span class="value" id="entry-time">--:--</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">Salida:</span>
+                        <span class="value" id="exit-time">--:--</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">Pausa:</span>
+                        <span class="value" id="pause-time">0 min</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">Total horas:</span>
+                        <span class="value" id="total-hours">0h 0m</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Acciones de Fichaje (Live Tracking) -->
+        <div class="card">
+            <h2>Acciones de Fichaje</h2>
+            <p class="card-subtitle">Control en tiempo real del fichaje en Holded</p>
+            <div class="card-content">
+                <div class="fichaje-actions">
+                    <button class="btn btn-warning fichaje-btn" id="btn-force">
+                        <span class="fichaje-btn-icon">&#9654;</span>
+                        Fichar Ahora
+                    </button>
+                    <button class="btn btn-primary fichaje-btn" id="btn-pause-start">
+                        <span class="fichaje-btn-icon">&#9646;&#9646;</span>
+                        Iniciar Pausa
+                    </button>
+                    <button class="btn btn-primary fichaje-btn" id="btn-pause-end">
+                        <span class="fichaje-btn-icon">&#9654;</span>
+                        Finalizar Pausa
+                    </button>
+                    <button class="btn btn-danger fichaje-btn" id="btn-stop-fichaje">
+                        <span class="fichaje-btn-icon">&#9632;</span>
+                        Finalizar Fichaje
+                    </button>
+                </div>
+                <div class="debug-mode">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="chk-headless" checked>
+                        <span class="toggle-text">
+                            <strong>Modo visible (debug)</strong>
+                            <small>Mostrar navegador Playwright al fichar</small>
+                        </span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Fichaje Manual -->
+        <div class="card">
+            <h2>Fichaje Manual</h2>
+            <p class="card-subtitle">Registrar un fichaje manual en Holded con el horario activo</p>
+            <div class="card-content">
+                <div class="manual-fichaje-form">
+                    <div class="form-group">
+                        <label for="manual-date">Fecha</label>
+                        <input type="date" id="manual-date" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-primary" id="btn-manual-fichaje">Fichar en Holded</button>
+                    </div>
+                </div>
+                <p class="form-hint">Usa el horario activo configurado en la seccion de Horarios</p>
+            </div>
+        </div>
+        
+        <!-- Recent Attendance -->
+        <div class="card card-wide">
+            <h2>Ultimos Fichajes</h2>
+            <div class="card-content">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Entrada</th>
+                            <th>Salida</th>
+                            <th>Pausa</th>
+                            <th>Total</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendance-table">
+                        <tr>
+                            <td colspan="6" class="text-center">Cargando datos...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadDashboardData();
+    loadHeadlessState();
+    
+    // Set today's date for manual fichaje
+    document.getElementById('manual-date').value = new Date().toISOString().split('T')[0];
+    
+    // Button event listeners
+    document.getElementById('btn-start').addEventListener('click', startScheduler);
+    document.getElementById('btn-stop').addEventListener('click', stopScheduler);
+    document.getElementById('btn-force').addEventListener('click', (e) => forceFichaje('entry', e.target));
+    document.getElementById('btn-pause-start').addEventListener('click', (e) => forceFichaje('pause_start', e.target));
+    document.getElementById('btn-pause-end').addEventListener('click', (e) => forceFichaje('pause_end', e.target));
+    document.getElementById('btn-stop-fichaje').addEventListener('click', (e) => forceFichaje('exit', e.target));
+    document.getElementById('btn-manual-fichaje').addEventListener('click', doManualFichaje);
+    document.getElementById('chk-headless').addEventListener('change', toggleHeadless);
+});
+
+async function loadDashboardData() {
+    try {
+        const [schedulerStatus, todayStatus, attendance] = await Promise.all([
+            fetch('/api/scheduler/status').then(r => r.json()),
+            fetch('/api/attendance/today').then(r => r.json()),
+            fetch('/api/attendance').then(r => r.json())
+        ]);
+        
+        updateSchedulerUI(schedulerStatus);
+        updateTodayUI(todayStatus);
+        updateAttendanceTable(Array.isArray(attendance) ? attendance.slice(0, 5) : []);
+    } catch (error) {
+        console.error('Error loading dashboard:', error);
+    }
+}
+
+function updateSchedulerUI(status) {
+    const statusDot = document.querySelector('#scheduler-status .status-dot');
+    const statusText = document.querySelector('#scheduler-status .status-text');
+    
+    if (status.is_running) {
+        statusDot.classList.add('running');
+        statusText.textContent = 'Activo';
+    } else {
+        statusDot.classList.remove('running');
+        statusText.textContent = 'Detenido';
+    }
+    
+    document.getElementById('next-fichaje').textContent = 
+        status.next_fichaje ? new Date(status.next_fichaje).toLocaleTimeString() : '--:--';
+    document.getElementById('last-fichaje').textContent = 
+        status.last_fichaje ? new Date(status.last_fichaje).toLocaleTimeString() : '--:--';
+}
+
+function updateTodayUI(status) {
+    document.getElementById('current-status').textContent = status.current_status;
+    document.getElementById('entry-time').textContent = 
+        status.entry_time ? new Date(status.entry_time).toLocaleTimeString() : '--:--';
+    document.getElementById('exit-time').textContent = 
+        status.exit_time ? new Date(status.exit_time).toLocaleTimeString() : '--:--';
+    document.getElementById('pause-time').textContent = `${status.pause_minutes} min`;
+    
+    const hours = Math.floor(status.total_hours);
+    const minutes = Math.round((status.total_hours - hours) * 60);
+    document.getElementById('total-hours').textContent = `${hours}h ${minutes}m`;
+}
+
+function updateAttendanceTable(attendance) {
+    const tbody = document.getElementById('attendance-table');
+    if (!attendance || attendance.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center">No hay fichajes recientes</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = attendance.map(a => `
+        <tr>
+            <td>${new Date(a.date).toLocaleDateString()}</td>
+            <td>${a.entry_time ? new Date(a.entry_time).toLocaleTimeString() : '--:--'}</td>
+            <td>${a.exit_time ? new Date(a.exit_time).toLocaleTimeString() : '--:--'}</td>
+            <td>${a.pause_minutes} min</td>
+            <td>${calculateTotal(a.entry_time, a.exit_time, a.pause_minutes)}</td>
+            <td><span class="badge badge-${a.status}">${a.status}</span></td>
+        </tr>
+    `).join('');
+}
+
+function calculateTotal(entry, exit, pauseMinutes) {
+    if (!entry || !exit) return '--:--';
+    const total = (new Date(exit) - new Date(entry)) / 1000 / 60 - pauseMinutes;
+    const hours = Math.floor(total / 60);
+    const minutes = Math.round(total % 60);
+    return `${hours}h ${minutes}m`;
+}
+
+async function startScheduler() {
+    const btn = document.getElementById('btn-start');
+    btn.disabled = true;
+    btn.textContent = 'Iniciando...';
+    await fetch('/api/scheduler/start', { method: 'POST' });
+    btn.disabled = false;
+    btn.textContent = 'Iniciar Scheduler';
+    loadDashboardData();
+    showNotification('Scheduler iniciado', 'success');
+}
+
+async function stopScheduler() {
+    const btn = document.getElementById('btn-stop');
+    btn.disabled = true;
+    btn.textContent = 'Deteniendo...';
+    await fetch('/api/scheduler/stop', { method: 'POST' });
+    btn.disabled = false;
+    btn.textContent = 'Detener Scheduler';
+    loadDashboardData();
+    showNotification('Scheduler detenido', 'warning');
+}
+
+async function forceFichaje(type = 'entry', clickedBtn = null) {
+    const btn = clickedBtn;
+    const originalHTML = btn.innerHTML;
+    
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-loading-text">Procesando...</span>';
+    
+    try {
+        const response = await fetch('/api/scheduler/force', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fichaje_type: type })
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success' || result.success) {
+            showNotification(result.message || 'Fichaje completado', 'success');
+        } else if (result.status === 'session_expired') {
+            showNotification('Sesion expirada. Inicia sesion en Holded primero.', 'error');
+        } else {
+            showNotification(result.message || result.detail || 'Error al fichar', 'error');
+        }
+    } catch (error) {
+        showNotification('Error de conexion', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+        loadDashboardData();
+    }
+}
+
+// === Manual Fichaje ===
+
+async function doManualFichaje() {
+    const btn = document.getElementById('btn-manual-fichaje');
+    const originalText = btn.textContent;
+    const targetDate = document.getElementById('manual-date').value;
+    
+    if (!targetDate) {
+        showNotification('Selecciona una fecha', 'error');
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.textContent = 'Fichando...';
+    
+    try {
+        const response = await fetch('/api/attendance/manual-fichaje', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target_date: targetDate })
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            showNotification(result.message || 'Fichaje manual completado', 'success');
+            loadDashboardData();
+        } else if (result.status === 'session_expired') {
+            showNotification('Sesion expirada. Inicia sesion en Holded primero.', 'error');
+        } else {
+            showNotification(result.message || result.detail || 'Error al fichar', 'error');
+        }
+    } catch (error) {
+        showNotification('Error de conexion', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
+// === Headless Mode Toggle ===
+
+async function loadHeadlessState() {
+    try {
+        const response = await fetch('/api/config/headless');
+        const data = await response.json();
+        const chk = document.getElementById('chk-headless');
+        chk.checked = !data.headless;
+    } catch (error) {
+        console.error('Error loading headless state:', error);
+    }
+}
+
+async function toggleHeadless() {
+    const chk = document.getElementById('chk-headless');
+    const headless = !chk.checked;
+    
+    try {
+        const response = await fetch('/api/config/headless', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ headless: headless })
+        });
+        
+        const result = await response.json();
+        const small = document.querySelector('#chk-headless + .toggle-text small');
+        if (small) {
+            small.textContent = headless 
+                ? 'Navegador oculto - modo produccion'
+                : 'Navegador visible - veras Playwright hacer el fichaje';
+        }
+        showNotification(result.message || 'Configuracion actualizada', 'success');
+    } catch (error) {
+        showNotification('Error al cambiar modo', 'error');
+    }
+}
+</script>
+
+<style>
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+}
+
+.card-wide {
+    grid-column: 1 / -1;
+}
+
+.card-subtitle {
+    font-size: 0.8rem;
+    color: var(--text-secondary, #6b7280);
+    margin: -0.5rem 0 0.75rem 0;
+}
+
+/* Fichaje Actions */
+.fichaje-actions {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.fichaje-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.fichaje-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.fichaje-btn-icon {
+    font-size: 0.8rem;
+}
+
+/* Manual Fichaje */
+.manual-fichaje-form {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-end;
+}
+
+.manual-fichaje-form .form-group {
+    margin-bottom: 0;
+}
+
+.form-hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary, #6b7280);
+    margin-top: 0.75rem;
+}
+
+/* Debug Mode */
+.debug-mode {
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+.toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+    padding: 0.25rem 0;
+}
+
+.toggle-label:hover {
+    opacity: 0.8;
+}
+
+.toggle-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--primary-color, #3b82f6);
+}
+
+.toggle-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.toggle-text strong {
+    font-size: 0.8rem;
+    color: var(--text-primary, #111827);
+}
+
+.toggle-text small {
+    font-size: 0.7rem;
+    color: var(--text-secondary, #6b7280);
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+    .fichaje-actions {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
+{% endblock %}

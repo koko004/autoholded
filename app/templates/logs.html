@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+
+{% block title %}Logs - Fichador Holded{% endblock %}
+
+{% block content %}
+<div class="logs-page">
+    <div class="page-header">
+        <h1>Logs del Sistema</h1>
+        <div class="page-actions">
+            <button class="btn btn-secondary" id="btn-refresh">Actualizar</button>
+            <button class="btn btn-danger" id="btn-clean">Limpiar Logs Antiguos</button>
+        </div>
+    </div>
+    
+    <!-- Filters -->
+    <div class="card filters-card">
+        <form id="filter-form">
+            <div class="filters-row">
+                <div class="form-group">
+                    <label for="level-filter">Nivel</label>
+                    <select id="level-filter" name="level" class="form-control">
+                        <option value="">Todos</option>
+                        <option value="info">Info</option>
+                        <option value="warning">Warning</option>
+                        <option value="error">Error</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="module-filter">Módulo</label>
+                    <select id="module-filter" name="module" class="form-control">
+                        <option value="">Todos</option>
+                        <option value="scheduler">Scheduler</option>
+                        <option value="fichador">Fichador</option>
+                        <option value="api">API</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <button type="submit" class="btn btn-primary">Filtrar</button>
+                </div>
+            </div>
+        </form>
+    </div>
+    
+    <!-- Logs Table -->
+    <div class="card">
+        <div class="logs-container" id="logs-container">
+            <p class="text-center">Cargando logs...</p>
+        </div>
+    </div>
+    
+    <!-- Clean Modal -->
+    <div class="modal" id="clean-modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Limpiar Logs</h2>
+                <button class="modal-close" id="btn-close-modal">&times;</button>
+            </div>
+            <form id="clean-form">
+                <div class="form-group">
+                    <label for="days-to-keep">Conservar logs de los últimos</label>
+                    <input type="number" id="days-to-keep" name="days_to_keep" value="30" min="1" class="form-control">
+                    <span>días</span>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">Limpiar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+let logsData = [];
+let autoRefresh = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadLogs();
+    
+    document.getElementById('filter-form').addEventListener('submit', applyFilters);
+    document.getElementById('btn-refresh').addEventListener('click', loadLogs);
+    document.getElementById('btn-clean').addEventListener('click', () => openCleanModal());
+    document.getElementById('btn-close-modal').addEventListener('click', closeCleanModal);
+    document.getElementById('btn-cancel').addEventListener('click', closeCleanModal);
+    document.getElementById('clean-form').addEventListener('submit', cleanLogs);
+    
+    // Auto-refresh every 30 seconds
+    autoRefresh = setInterval(loadLogs, 30000);
+});
+
+async function loadLogs(level = null, module = null) {
+    try {
+        let url = '/api/logs?limit=200';
+        if (level) url += `&level=${level}`;
+        if (module) url += `&module=${module}`;
+        
+        const response = await fetch(url);
+        logsData = await response.json();
+        
+        renderLogs();
+    } catch (error) {
+        console.error('Error loading logs:', error);
+    }
+}
+
+function renderLogs() {
+    const container = document.getElementById('logs-container');
+    
+    if (logsData.length === 0) {
+        container.innerHTML = '<p class="text-center">No hay logs</p>';
+        return;
+    }
+    
+    container.innerHTML = logsData.map(log => `
+        <div class="log-entry log-${log.level}">
+            <span class="log-timestamp">${new Date(log.timestamp).toLocaleString('es-ES')}</span>
+            <span class="log-level badge badge-${log.level}">${log.level}</span>
+            <span class="log-module">[${log.module}]</span>
+            <span class="log-message">${log.message}</span>
+        </div>
+    `).join('');
+}
+
+function applyFilters(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    loadLogs(formData.get('level'), formData.get('module'));
+}
+
+function openCleanModal() {
+    document.getElementById('clean-modal').style.display = 'flex';
+}
+
+function closeCleanModal() {
+    document.getElementById('clean-modal').style.display = 'none';
+}
+
+async function cleanLogs(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    
+    try {
+        const response = await fetch(`/api/logs/clean?days_to_keep=${formData.get('days_to_keep')}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            closeCleanModal();
+            loadLogs();
+            showNotification('Logs limpiados correctamente', 'success');
+        }
+    } catch (error) {
+        showNotification('Error al limpiar logs', 'error');
+    }
+}
+</script>
+
+<style>
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.page-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.filters-card {
+    margin-bottom: 1.5rem;
+}
+
+.filters-row {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-end;
+}
+
+.filters-row .form-group {
+    margin-bottom: 0;
+}
+
+.logs-container {
+    max-height: 600px;
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 0.875rem;
+}
+
+.log-entry {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.log-entry:hover {
+    background-color: var(--background-color);
+}
+
+.log-timestamp {
+    color: var(--text-secondary);
+    min-width: 150px;
+}
+
+.log-level {
+    min-width: 60px;
+    text-align: center;
+}
+
+.log-module {
+    color: var(--primary-color);
+    min-width: 80px;
+}
+
+.log-message {
+    flex: 1;
+    word-break: break-word;
+}
+
+.log-info { }
+.log-warning { background-color: #fffbeb; }
+.log-error { background-color: #fef2f2; }
+
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 400px;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+.modal-content form {
+    padding: 1.5rem;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+}
+</style>
+{% endblock %}

@@ -1,0 +1,600 @@
+{% extends "base.html" %}
+
+{% block title %}Historial - Fichador Holded{% endblock %}
+
+{% block content %}
+<div class="attendance-page">
+    <div class="page-header">
+        <h1>Historial de Fichajes</h1>
+        <div class="page-actions">
+            <button class="btn btn-secondary" id="btn-export">Exportar CSV</button>
+        </div>
+    </div>
+    
+    <!-- Filters -->
+    <div class="card filters-card">
+        <form id="filter-form">
+            <div class="filters-row">
+                <div class="form-group">
+                    <label for="start-date">Desde</label>
+                    <input type="date" id="start-date" name="start_date" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label for="end-date">Hasta</label>
+                    <input type="date" id="end-date" name="end_date" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <button type="submit" class="btn btn-primary">Filtrar</button>
+                </div>
+            </div>
+        </form>
+    </div>
+    
+    <!-- Stats -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Total Horas</h3>
+            <p class="stat-value" id="stat-total-hours">0h 0m</p>
+        </div>
+        <div class="stat-card">
+            <h3>Días Trabajados</h3>
+            <p class="stat-value" id="stat-days-worked">0</p>
+        </div>
+        <div class="stat-card">
+            <h3>Media Diaria</h3>
+            <p class="stat-value" id="stat-daily-average">0h 0m</p>
+        </div>
+        <div class="stat-card">
+            <h3>Horas Extra</h3>
+            <p class="stat-value" id="stat-overtime">0h 0m</p>
+        </div>
+    </div>
+    
+    <!-- Attendance Table -->
+    <div class="card">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Entrada</th>
+                    <th>Salida</th>
+                    <th>Pausa</th>
+                    <th>Total</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody id="attendance-table">
+                <tr>
+                    <td colspan="7" class="text-center">Cargando datos...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal" id="edit-modal" style="display: none;">
+    <div class="modal-content modal-lg">
+        <div class="modal-header">
+            <h2>Modificar Fichaje</h2>
+            <button class="modal-close" id="btn-close-edit-modal">&times;</button>
+        </div>
+        <form id="edit-form">
+            <div class="modal-body">
+                <!-- Date (readonly) -->
+                <div class="form-group">
+                    <label for="edit-date">Fecha</label>
+                    <input type="date" id="edit-date" name="date" class="form-control" readonly>
+                </div>
+
+                <!-- Location -->
+                <div class="form-group">
+                    <label for="edit-location">Ubicación (opcional)</label>
+                    <input type="text" id="edit-location" name="location" class="form-control" 
+                           placeholder="Dejar vacío para no cambiar">
+                </div>
+
+                <!-- Work Blocks -->
+                <div class="form-group">
+                    <label>Bloques de trabajo</label>
+                    <div id="edit-blocks-container">
+                        <!-- Blocks will be added here dynamically -->
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-add-edit-block">
+                        + Añadir franja
+                    </button>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="btn-cancel-edit">Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="btn-save-edit">
+                    <span class="btn-text">Guardar en Holded</span>
+                    <span class="btn-loading" style="display: none;">Guardando...</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+let attendanceData = [];
+let editBlockCount = 0;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadAttendance();
+    
+    document.getElementById('filter-form').addEventListener('submit', applyFilters);
+    document.getElementById('btn-export').addEventListener('click', exportData);
+    document.getElementById('btn-close-edit-modal').addEventListener('click', closeEditModal);
+    document.getElementById('btn-cancel-edit').addEventListener('click', closeEditModal);
+    document.getElementById('edit-form').addEventListener('submit', saveEdit);
+    document.getElementById('btn-add-edit-block').addEventListener('click', addEditBlock);
+    
+    // Close modal on backdrop click
+    document.getElementById('edit-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeEditModal();
+    });
+    
+    // Set default dates (last 30 days)
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    document.getElementById('end-date').value = today.toISOString().split('T')[0];
+    document.getElementById('start-date').value = thirtyDaysAgo.toISOString().split('T')[0];
+});
+
+async function loadAttendance(startDate = null, endDate = null) {
+    try {
+        let url = '/api/attendance?limit=100';
+        if (startDate) url += `&start_date=${startDate}`;
+        if (endDate) url += `&end_date=${endDate}`;
+        
+        const response = await fetch(url);
+        attendanceData = await response.json();
+        
+        renderTable();
+        calculateStats();
+    } catch (error) {
+        console.error('Error loading attendance:', error);
+    }
+}
+
+function renderTable() {
+    const tbody = document.getElementById('attendance-table');
+    
+    if (attendanceData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center">No hay registros</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = attendanceData.map(record => `
+        <tr>
+            <td>${new Date(record.date).toLocaleDateString('es-ES')}</td>
+            <td>${formatTime(record.entry_time)}</td>
+            <td>${formatTime(record.exit_time)}</td>
+            <td>${record.pause_minutes} min</td>
+            <td>${calculateTotal(record)}</td>
+            <td><span class="badge badge-${record.status}">${record.status}</span></td>
+            <td>
+                <button class="btn btn-secondary btn-sm" onclick="editRecord('${record.id}')">Editar en Holded</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function calculateTotal(record) {
+    if (!record.entry_time || !record.exit_time) return '--:--';
+    
+    const entry = new Date(record.entry_time);
+    const exit = new Date(record.exit_time);
+    const totalMinutes = (exit - entry) / 1000 / 60 - record.pause_minutes;
+    
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = Math.round(totalMinutes % 60);
+    
+    return `${hours}h ${minutes}m`;
+}
+
+function calculateStats() {
+    let totalMinutes = 0;
+    let daysWorked = 0;
+    
+    attendanceData.forEach(record => {
+        if (record.entry_time && record.exit_time) {
+            const entry = new Date(record.entry_time);
+            const exit = new Date(record.exit_time);
+            totalMinutes += (exit - entry) / 1000 / 60 - record.pause_minutes;
+            daysWorked++;
+        }
+    });
+    
+    const totalHours = Math.floor(totalMinutes / 60);
+    const totalMins = Math.round(totalMinutes % 60);
+    const avgMinutes = daysWorked > 0 ? totalMinutes / daysWorked : 0;
+    const avgHours = Math.floor(avgMinutes / 60);
+    const avgMins = Math.round(avgMinutes % 60);
+    
+    document.getElementById('stat-total-hours').textContent = `${totalHours}h ${totalMins}m`;
+    document.getElementById('stat-days-worked').textContent = daysWorked;
+    document.getElementById('stat-daily-average').textContent = `${avgHours}h ${avgMins}m`;
+    
+    // Calculate overtime (assuming 8h workday)
+    const expectedMinutes = daysWorked * 8 * 60;
+    const overtimeMinutes = Math.max(0, totalMinutes - expectedMinutes);
+    const otHours = Math.floor(overtimeMinutes / 60);
+    const otMins = Math.round(overtimeMinutes % 60);
+    document.getElementById('stat-overtime').textContent = `${otHours}h ${otMins}m`;
+}
+
+function formatTime(dateString) {
+    if (!dateString) return '--:--';
+    return new Date(dateString).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+}
+
+function applyFilters(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    loadAttendance(formData.get('start_date'), formData.get('end_date'));
+}
+
+function exportData() {
+    if (attendanceData.length === 0) {
+        showNotification('No hay datos para exportar', 'warning');
+        return;
+    }
+    
+    const exportData = attendanceData.map(record => ({
+        Fecha: new Date(record.date).toLocaleDateString('es-ES'),
+        Entrada: formatTime(record.entry_time),
+        Salida: formatTime(record.exit_time),
+        Pausa: `${record.pause_minutes} min`,
+        Total: calculateTotal(record),
+        Estado: record.status
+    }));
+    
+    exportToCSV(exportData, `fichajes_${new Date().toISOString().split('T')[0]}.csv`);
+}
+
+// === Edit Modal Functions ===
+
+function editRecord(id) {
+    const record = attendanceData.find(r => r.id === id);
+    if (!record) {
+        showNotification('Registro no encontrado', 'error');
+        return;
+    }
+    
+    openEditModal(record);
+}
+
+function openEditModal(record) {
+    const modal = document.getElementById('edit-modal');
+    const dateInput = document.getElementById('edit-date');
+    const blocksContainer = document.getElementById('edit-blocks-container');
+    
+    // Set date
+    dateInput.value = record.date;
+    
+    // Clear existing blocks
+    blocksContainer.innerHTML = '';
+    editBlockCount = 0;
+    
+    // Add initial block with default times
+    addEditBlock('09:00', '17:00', 'Trabajado');
+    
+    modal.style.display = 'flex';
+}
+
+function closeEditModal() {
+    document.getElementById('edit-modal').style.display = 'none';
+}
+
+function addEditBlock(entryTime = '09:00', exitTime = '17:00', type = 'Trabajado') {
+    const container = document.getElementById('edit-blocks-container');
+    const blockIndex = editBlockCount++;
+    
+    const blockHtml = `
+        <div class="edit-block" data-index="${blockIndex}">
+            <div class="block-header">
+                <span class="block-number">Franja ${blockIndex + 1}</span>
+                <button type="button" class="btn btn-danger btn-sm" onclick="removeEditBlock(this)" title="Eliminar franja">&times;</button>
+            </div>
+            <div class="block-fields">
+                <div class="form-group">
+                    <label>Tipo</label>
+                    <select class="form-control block-type" name="block_${blockIndex}_type">
+                        <option value="Trabajado" ${type === 'Trabajado' ? 'selected' : ''}>Trabajado</option>
+                        <option value="Pausa" ${type === 'Pausa' ? 'selected' : ''}>Pausa</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Entrada</label>
+                    <input type="time" class="form-control block-entry" name="block_${blockIndex}_entry" 
+                           value="${entryTime}" step="300" required>
+                </div>
+                <div class="form-group">
+                    <label>Salida</label>
+                    <input type="time" class="form-control block-exit" name="block_${blockIndex}_exit" 
+                           value="${exitTime}" step="300" required>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.insertAdjacentHTML('beforeend', blockHtml);
+}
+
+function removeEditBlock(btn) {
+    const block = btn.closest('.edit-block');
+    const container = document.getElementById('edit-blocks-container');
+    
+    // Don't remove if it's the only block
+    if (container.children.length <= 1) {
+        showNotification('Debe haber al menos un bloque de trabajo', 'warning');
+        return;
+    }
+    
+    block.remove();
+    renumberBlocks();
+}
+
+function renumberBlocks() {
+    const blocks = document.querySelectorAll('#edit-blocks-container .edit-block');
+    blocks.forEach((block, index) => {
+        block.dataset.index = index;
+        block.querySelector('.block-number').textContent = `Franja ${index + 1}`;
+        
+        // Update input names
+        const typeSelect = block.querySelector('.block-type');
+        const entryInput = block.querySelector('.block-entry');
+        const exitInput = block.querySelector('.block-exit');
+        
+        typeSelect.name = `block_${index}_type`;
+        entryInput.name = `block_${index}_entry`;
+        exitInput.name = `block_${index}_exit`;
+    });
+    editBlockCount = blocks.length;
+}
+
+async function saveEdit(e) {
+    e.preventDefault();
+    
+    const btn = document.getElementById('btn-save-edit');
+    const btnText = btn.querySelector('.btn-text');
+    const btnLoading = btn.querySelector('.btn-loading');
+    
+    // Collect form data
+    const date = document.getElementById('edit-date').value;
+    const location = document.getElementById('edit-location').value.trim() || null;
+    
+    // Collect work blocks
+    const blocks = [];
+    const blockElements = document.querySelectorAll('#edit-blocks-container .edit-block');
+    
+    blockElements.forEach(block => {
+        const type = block.querySelector('.block-type').value;
+        const entry = block.querySelector('.block-entry').value;
+        const exit = block.querySelector('.block-exit').value;
+        
+        if (entry && exit) {
+            blocks.push({
+                entry: entry.substring(0, 5),  // HH:MM format
+                exit: exit.substring(0, 5),
+                type: type
+            });
+        }
+    });
+    
+    if (blocks.length === 0) {
+        showNotification('Añade al menos un bloque de trabajo', 'error');
+        return;
+    }
+    
+    // Show loading state
+    btn.disabled = true;
+    btnText.style.display = 'none';
+    btnLoading.style.display = 'inline';
+    
+    try {
+        const response = await fetch('/api/attendance/modify-fichaje', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                target_date: date,
+                work_blocks: blocks,
+                location: location
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            showNotification(result.message || 'Fichaje modificado correctamente', 'success');
+            closeEditModal();
+            loadAttendance();
+        } else if (result.status === 'session_expired') {
+            showNotification('Sesión expirada. Ve a Configuración para iniciar sesión.', 'error');
+        } else {
+            showNotification(result.message || 'Error al modificar fichaje', 'error');
+        }
+    } catch (error) {
+        showNotification('Error de conexión', 'error');
+    } finally {
+        btn.disabled = false;
+        btnText.style.display = 'inline';
+        btnLoading.style.display = 'none';
+    }
+}
+</script>
+
+<style>
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.filters-card {
+    margin-bottom: 1.5rem;
+}
+
+.filters-row {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-end;
+}
+
+.filters-row .form-group {
+    margin-bottom: 0;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.stat-card {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: var(--shadow);
+}
+
+.stat-card h3 {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-color);
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+/* Edit Modal Styles */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-lg {
+    max-width: 600px;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+
+.modal-body {
+    padding: 1.5rem;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Edit Block Styles */
+.edit-block {
+    background: var(--background-color, #f9fafb);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.block-number {
+    font-weight: 600;
+    color: var(--text-secondary, #6b7280);
+    font-size: 0.875rem;
+}
+
+.block-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.75rem;
+}
+
+.block-fields .form-group {
+    margin-bottom: 0;
+}
+
+.block-fields label {
+    font-size: 0.75rem;
+    color: var(--text-secondary, #6b7280);
+    margin-bottom: 0.25rem;
+    display: block;
+}
+
+.block-fields .form-control {
+    padding: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.form-control[readonly] {
+    background-color: var(--background-color, #f3f4f6);
+    cursor: not-allowed;
+}
+
+.btn-loading {
+    display: inline;
+}
+</style>
+{% endblock %}

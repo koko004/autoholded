@@ -1,0 +1,463 @@
+{% extends "base.html" %}
+
+{% block title %}Horarios - Fichador Holded{% endblock %}
+
+{% block content %}
+<div class="schedules-page">
+    <div class="page-header">
+        <h1>Horarios de Trabajo</h1>
+        <button class="btn btn-primary" id="btn-add-schedule">+ Nuevo Horario</button>
+    </div>
+    
+    <div class="schedules-list" id="schedules-list">
+        <p>Cargando horarios...</p>
+    </div>
+    
+    <!-- Schedule Modal -->
+    <div class="modal" id="schedule-modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">Nuevo Horario</h2>
+                <button class="modal-close" id="btn-close-modal">&times;</button>
+            </div>
+            <form id="schedule-form">
+                <input type="hidden" id="schedule-id" name="schedule_id">
+                
+                <div class="form-group">
+                    <label for="schedule-name">Nombre del Horario</label>
+                    <input type="text" id="schedule-name" name="name" class="form-control" required>
+                </div>
+                
+                <!-- Work Blocks (Split Shift Support) -->
+                <div class="form-group">
+                    <label>Bloques de Trabajo</label>
+                    <div id="work-blocks-container">
+                        <!-- Blocks will be added here dynamically -->
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-add-block">
+                        + Añadir Bloque
+                    </button>
+                </div>
+                
+                <div class="form-group">
+                    <label for="schedule-location">Ubicación (centro de trabajo)</label>
+                    <select id="schedule-location" name="location" class="form-control">
+                        <option value="">Sin definir</option>
+                        <option value="ARCO C.B.">ARCO C.B.</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Días Laborables</label>
+                    <div class="days-grid">
+                        <label><input type="checkbox" name="work_days" value="0" checked> Lunes</label>
+                        <label><input type="checkbox" name="work_days" value="1" checked> Martes</label>
+                        <label><input type="checkbox" name="work_days" value="2" checked> Miércoles</label>
+                        <label><input type="checkbox" name="work_days" value="3" checked> Jueves</label>
+                        <label><input type="checkbox" name="work_days" value="4" checked> Viernes</label>
+                        <label><input type="checkbox" name="work_days" value="5"> Sábado</label>
+                        <label><input type="checkbox" name="work_days" value="6"> Domingo</label>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="is-active" name="is_active" checked>
+                        Horario activo
+                    </label>
+                </div>
+                
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+let blockCounter = 0;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadSchedules();
+    
+    document.getElementById('btn-add-schedule').addEventListener('click', () => openModal());
+    document.getElementById('btn-close-modal').addEventListener('click', closeModal);
+    document.getElementById('btn-cancel').addEventListener('click', closeModal);
+    document.getElementById('schedule-form').addEventListener('submit', saveSchedule);
+    document.getElementById('btn-add-block').addEventListener('click', addWorkBlock);
+    
+    // Add initial block
+    addWorkBlock();
+});
+
+function addWorkBlock(entry = '', exit = '', type = 'Trabajado') {
+    const container = document.getElementById('work-blocks-container');
+    const blockId = blockCounter++;
+    
+    const blockHtml = `
+        <div class="work-block" data-block-id="${blockId}">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Tipo</label>
+                    <select class="form-control block-type">
+                        <option value="Trabajado" ${type === 'Trabajado' ? 'selected' : ''}>Trabajado</option>
+                        <option value="Pausa" ${type === 'Pausa' ? 'selected' : ''}>Pausa</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Entrada</label>
+                    <input type="time" class="form-control block-entry" value="${entry}" required>
+                </div>
+                <div class="form-group">
+                    <label>Salida</label>
+                    <input type="time" class="form-control block-exit" value="${exit}" required>
+                </div>
+                <div class="form-group block-remove">
+                    <button type="button" class="btn btn-danger btn-sm" onclick="removeWorkBlock(${blockId})">
+                        &times;
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.insertAdjacentHTML('beforeend', blockHtml);
+}
+
+function removeWorkBlock(blockId) {
+    const block = document.querySelector(`.work-block[data-block-id="${blockId}"]`);
+    if (block) {
+        block.remove();
+    }
+}
+
+function getWorkBlocks() {
+    const blocks = [];
+    document.querySelectorAll('.work-block').forEach(block => {
+        const entry = block.querySelector('.block-entry').value;
+        const exit = block.querySelector('.block-exit').value;
+        const typeEl = block.querySelector('.block-type');
+        const type = typeEl ? typeEl.value : 'Trabajado';
+        if (entry && exit) {
+            blocks.push({ entry, exit, type });
+        }
+    });
+    return blocks;
+}
+
+async function loadSchedules() {
+    try {
+        const response = await fetch('/api/schedules');
+        const schedules = await response.json();
+        
+        const container = document.getElementById('schedules-list');
+        if (schedules.length === 0) {
+            container.innerHTML = '<p class="text-center">No hay horarios configurados</p>';
+            return;
+        }
+        
+        container.innerHTML = schedules.map(schedule => `
+            <div class="card schedule-card">
+                <div class="schedule-header">
+                    <h3>${schedule.name}</h3>
+                    <span class="badge ${schedule.is_active ? 'badge-active' : 'badge-inactive'}">
+                        ${schedule.is_active ? 'Activo' : 'Inactivo'}
+                    </span>
+                </div>
+                <div class="schedule-details">
+                    ${schedule.work_blocks && schedule.work_blocks.length > 0 
+                        ? schedule.work_blocks.map((block, i) => `
+                            <p><strong>Bloque ${i + 1}:</strong> ${block.type || 'Trabajado'} ${block.entry} - ${block.exit}</p>
+                        `).join('')
+                        : schedule.entry_time 
+                            ? `<p><strong>Entrada:</strong> ${schedule.entry_time}</p>
+                               <p><strong>Salida:</strong> ${schedule.exit_time}</p>`
+                            : ''
+                    }
+                </div>
+                <div class="schedule-days">
+                    ${getDayNames(schedule.work_days)}
+                </div>
+                ${schedule.location ? `<div class="schedule-location" style="color: #6b7280; font-size: 0.9rem; margin-top: 0.25rem;">Ubicacion: ${schedule.location}</div>` : ''}
+                <div class="schedule-actions">
+                    <button class="btn btn-secondary" onclick="editSchedule('${schedule.id}')">Editar</button>
+                    <button class="btn btn-danger" onclick="deleteSchedule('${schedule.id}')">Eliminar</button>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Error loading schedules:', error);
+    }
+}
+
+function getDayNames(workDays) {
+    const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    if (!workDays || workDays.length === 0) return '';
+    return workDays
+        .filter(d => d.is_workday)
+        .map(d => days[d.day_of_week])
+        .join(', ');
+}
+
+function openModal(schedule = null) {
+    const modal = document.getElementById('schedule-modal');
+    const title = document.getElementById('modal-title');
+    const blocksContainer = document.getElementById('work-blocks-container');
+    
+    // Clear existing blocks
+    blocksContainer.innerHTML = '';
+    blockCounter = 0;
+    
+    if (schedule) {
+        title.textContent = 'Editar Horario';
+        document.getElementById('schedule-id').value = schedule.id;
+        document.getElementById('schedule-name').value = schedule.name;
+        document.getElementById('is-active').checked = schedule.is_active;
+        document.getElementById('schedule-location').value = schedule.location || '';
+        
+        // Load work blocks
+        if (schedule.work_blocks && schedule.work_blocks.length > 0) {
+            schedule.work_blocks.forEach(block => {
+                addWorkBlock(block.entry, block.exit, block.type || 'Trabajado');
+            });
+        } else if (schedule.entry_time) {
+            // Legacy format
+            addWorkBlock(schedule.entry_time, schedule.exit_time);
+        } else {
+            addWorkBlock();
+        }
+        
+        // Set work days
+        document.querySelectorAll('input[name="work_days"]').forEach(cb => {
+            if (schedule.work_days) {
+                cb.checked = schedule.work_days.some(d => d.day_of_week == cb.value && d.is_workday);
+            }
+        });
+    } else {
+        title.textContent = 'Nuevo Horario';
+        document.getElementById('schedule-form').reset();
+        document.getElementById('schedule-id').value = '';
+        document.getElementById('schedule-location').value = '';
+        addWorkBlock();
+    }
+    
+    modal.style.display = 'flex';
+}
+
+function closeModal() {
+    document.getElementById('schedule-modal').style.display = 'none';
+}
+
+async function saveSchedule(e) {
+    e.preventDefault();
+    
+    const workBlocks = getWorkBlocks();
+    if (workBlocks.length === 0) {
+        alert('Añade al menos un bloque de trabajo');
+        return;
+    }
+    
+    const workDays = [];
+    document.querySelectorAll('input[name="work_days"]:checked').forEach(cb => {
+        workDays.push(parseInt(cb.value));
+    });
+    
+    const data = {
+        name: document.getElementById('schedule-name').value,
+        work_blocks: workBlocks,
+        work_days: workDays,
+        location: document.getElementById('schedule-location').value || null,
+        is_active: document.getElementById('is-active').checked
+    };
+    
+    const scheduleId = document.getElementById('schedule-id').value;
+    const url = scheduleId ? `/api/schedules/${scheduleId}` : '/api/schedules';
+    const method = scheduleId ? 'PUT' : 'POST';
+    
+    try {
+        const response = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            closeModal();
+            loadSchedules();
+            showNotification('Horario guardado correctamente', 'success');
+        } else {
+            const error = await response.text();
+            showNotification('Error al guardar horario: ' + error, 'error');
+        }
+    } catch (error) {
+        showNotification('Error al guardar horario', 'error');
+    }
+}
+
+async function editSchedule(id) {
+    try {
+        const response = await fetch(`/api/schedules/${id}`);
+        const schedule = await response.json();
+        openModal(schedule);
+    } catch (error) {
+        showNotification('Error al cargar horario', 'error');
+    }
+}
+
+async function deleteSchedule(id) {
+    if (!confirm('¿Estás seguro de eliminar este horario?')) return;
+    
+    try {
+        const response = await fetch(`/api/schedules/${id}`, { method: 'DELETE' });
+        if (response.ok) {
+            loadSchedules();
+            showNotification('Horario eliminado', 'success');
+        }
+    } catch (error) {
+        showNotification('Error al eliminar horario', 'error');
+    }
+}
+</script>
+
+<style>
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.schedules-list {
+    display: grid;
+    gap: 1rem;
+}
+
+.schedule-card {
+    padding: 1.5rem;
+}
+
+.schedule-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.schedule-details {
+    margin-bottom: 1rem;
+}
+
+.schedule-days {
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+}
+
+.schedule-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.badge-active {
+    background-color: #d1fae5;
+    color: #065f46;
+}
+
+.badge-inactive {
+    background-color: #e5e7eb;
+    color: #374151;
+}
+
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+.modal-content form {
+    padding: 1.5rem;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 1rem;
+    align-items: end;
+}
+
+.days-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 0.5rem;
+}
+
+.days-grid label {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.work-block {
+    background: #f9fafb;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+    border: 1px solid #e5e7eb;
+}
+
+.work-block .form-row {
+    margin-bottom: 0;
+}
+
+.block-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-bottom: 0.25rem;
+}
+
+.btn-sm {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+}
+</style>
+{% endblock %}

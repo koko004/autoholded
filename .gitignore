@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Data (cookies, sessions, secrets, screenshots, debug images)
+data/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Playwright recorded scripts (MAY CONTAIN CREDENTIALS)
+*.ts
+
+# Playwright MCP
+.playwright-mcp/
+opencode.json
+.opencodeignore
+AGENTS.md
+
+# Playwright
+.playwright/
+test-results/
+playwright-report/

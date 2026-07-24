@@ -1,0 +1,480 @@
+{% extends "base.html" %}
+
+{% block title %}Configuración - Fichador Holded{% endblock %}
+
+{% block content %}
+<div class="config-page">
+    <h1>Configuración</h1>
+    
+    <div class="config-grid">
+        <!-- Authentication -->
+        <div class="card">
+            <h2>Autenticación con Holded</h2>
+            <div class="session-status" id="session-status">
+                <span class="status-dot"></span>
+                <span class="status-text">Verificando sesión...</span>
+            </div>
+            
+            <!-- Login Form -->
+            <div id="login-section">
+                <form id="login-form">
+                    <div class="form-group">
+                        <label for="holded_email">Email de Holded</label>
+                        <input type="email" id="holded_email" name="holded_email" class="form-control" 
+                            value="{{ config.holded_email if config else '' }}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="holded_password">Contraseña</label>
+                        <input type="password" id="holded_password" name="holded_password" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="btn-login">
+                        Iniciar Sesión
+                    </button>
+                </form>
+            </div>
+            
+            <!-- 2FA Form (hidden by default) -->
+            <div id="twofa-section" style="display: none;">
+                <div class="alert alert-info">
+                    <strong>Código de verificación</strong>
+                    <p>Holded ha enviado un código a tu correo. Introdúcelo a continuación:</p>
+                </div>
+                <form id="twofa-form">
+                    <div class="form-group">
+                        <label for="twofa-code">Código 2FA</label>
+                        <input type="text" id="twofa-code" name="code" class="form-control twofa-input" 
+                            maxlength="8" placeholder="000000" autocomplete="one-time-code" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="btn-submit-2fa">
+                        Verificar Código
+                    </button>
+                </form>
+            </div>
+            
+            <!-- Progress indicator -->
+            <div id="login-progress" style="display: none;">
+                <div class="progress-indicator">
+                    <div class="spinner"></div>
+                    <span id="progress-message">Procesando...</span>
+                </div>
+            </div>
+            
+            <!-- Session Info -->
+            <div class="session-info" id="session-info" style="display: none;">
+                <p class="success">✓ Sesión activa</p>
+                <p class="session-details"><small>Sesión válida por 7 días</small></p>
+                <button class="btn btn-secondary" id="btn-logout">Cerrar Sesión</button>
+            </div>
+            
+            <!-- Error message -->
+            <div class="alert alert-danger" id="error-message" style="display: none;">
+                <span id="error-text"></span>
+            </div>
+        </div>
+        
+        <!-- Notification Settings -->
+        <div class="card">
+            <h2>Notificaciones</h2>
+            <form id="notification-form">
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="email_enabled" name="email_enabled">
+                        Habilitar notificaciones por email
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label for="email_recipients">Destinatarios (separados por coma)</label>
+                    <input type="text" id="email_recipients" name="email_recipients" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="notify_on_success" name="notify_on_success" checked>
+                        Notificar en fichaje exitoso
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="notify_on_error" name="notify_on_error" checked>
+                        Notificar en caso de error
+                    </label>
+                </div>
+                <button type="submit" class="btn btn-primary">Guardar</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+let pollInterval = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    checkSession();
+    
+    document.getElementById('login-form').addEventListener('submit', handleLogin);
+    document.getElementById('twofa-form').addEventListener('submit', handle2FA);
+    document.getElementById('notification-form').addEventListener('submit', saveNotifications);
+    document.getElementById('btn-logout').addEventListener('click', handleLogout);
+});
+
+async function checkSession() {
+    try {
+        const response = await fetch('/api/auth/check-session', { method: 'POST' });
+        const result = await response.json();
+        updateSessionUI(result.valid);
+    } catch (error) {
+        updateSessionUI(false);
+    }
+}
+
+function updateSessionUI(isValid) {
+    const statusDot = document.querySelector('#session-status .status-dot');
+    const statusText = document.querySelector('#session-status .status-text');
+    const sessionInfo = document.getElementById('session-info');
+    const loginSection = document.getElementById('login-section');
+    const twoFASection = document.getElementById('twofa-section');
+    
+    if (isValid) {
+        statusDot.classList.add('valid');
+        statusText.textContent = 'Sesión válida';
+        sessionInfo.style.display = 'block';
+        loginSection.style.display = 'none';
+        twoFASection.style.display = 'none';
+    } else {
+        statusDot.classList.remove('valid');
+        statusText.textContent = 'Sin sesión activa';
+        sessionInfo.style.display = 'none';
+        loginSection.style.display = 'block';
+        twoFASection.style.display = 'none';
+    }
+}
+
+function showProgress(message) {
+    document.getElementById('login-progress').style.display = 'block';
+    document.getElementById('progress-message').textContent = message;
+}
+
+function hideProgress() {
+    document.getElementById('login-progress').style.display = 'none';
+}
+
+function showError(message) {
+    const errorDiv = document.getElementById('error-message');
+    document.getElementById('error-text').textContent = message;
+    errorDiv.style.display = 'block';
+}
+
+function hideError() {
+    document.getElementById('error-message').style.display = 'none';
+}
+
+function show2FAForm() {
+    document.getElementById('login-section').style.display = 'none';
+    document.getElementById('twofa-section').style.display = 'block';
+    document.getElementById('twofa-code').focus();
+}
+
+async function handleLogin(e) {
+    e.preventDefault();
+    hideError();
+    
+    const formData = new FormData(e.target);
+    const btn = document.getElementById('btn-login');
+    
+    btn.disabled = true;
+    showProgress('Iniciando sesión...');
+    
+    try {
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                email: formData.get('holded_email'),
+                password: formData.get('holded_password')
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'started') {
+            // Start polling for status
+            startPolling();
+        } else {
+            hideProgress();
+            btn.disabled = false;
+            showError(result.message || 'Error al iniciar login');
+        }
+        
+    } catch (error) {
+        hideProgress();
+        btn.disabled = false;
+        showError('Error de conexión');
+    }
+}
+
+function startPolling() {
+    // Clear existing interval
+    if (pollInterval) clearInterval(pollInterval);
+    
+    let pollCount = 0;
+    const maxPolls = 120; // 2 minutes max
+    
+    pollInterval = setInterval(async () => {
+        pollCount++;
+        if (pollCount > maxPolls) {
+            clearInterval(pollInterval);
+            hideProgress();
+            document.getElementById('btn-login').disabled = false;
+            showError('Timeout esperando respuesta del servidor');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/auth/status');
+            const status = await response.json();
+            
+            console.log('Poll #' + pollCount + ':', status.state, status.message);
+            
+            // Update progress message
+            const progressMsg = document.getElementById('progress-message');
+            if (progressMsg && status.message) {
+                progressMsg.textContent = status.message;
+            }
+            
+            if (status.state === 'waiting_2fa') {
+                clearInterval(pollInterval);
+                hideProgress();
+                show2FAForm();
+                
+            } else if (status.state === 'completed') {
+                clearInterval(pollInterval);
+                hideProgress();
+                document.getElementById('twofa-section').style.display = 'none';
+                document.getElementById('login-section').style.display = 'none';
+                updateSessionUI(true);
+                showNotification('Sesion completada', 'success');
+                
+            } else if (status.state === 'error') {
+                clearInterval(pollInterval);
+                hideProgress();
+                document.getElementById('btn-login').disabled = false;
+                document.getElementById('btn-submit-2fa').disabled = false;
+                showError(status.error || 'Error durante el login');
+            }
+            // else: still logging_in, keep polling
+            
+        } catch (error) {
+            console.error('Poll error:', error);
+        }
+    }, 1000);
+}
+
+async function handle2FA(e) {
+    e.preventDefault();
+    hideError();
+    
+    const rawCode = document.getElementById('twofa-code').value;
+    const code = rawCode.replace(/\s/g, '').trim();
+    const btn = document.getElementById('btn-submit-2fa');
+    
+    if (!code || code.length !== 6) {
+        showError('Introduce un codigo de 6 digitos (recibido: ' + code.length + ' caracteres)');
+        return;
+    }
+    
+    btn.disabled = true;
+    showProgress('Enviando codigo...');
+    
+    try {
+        const response = await fetch('/api/auth/2fa', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: code })
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            showProgress('Codigo enviado. Verificando...');
+            // Small delay then check status directly
+            setTimeout(async () => {
+                try {
+                    const statusResp = await fetch('/api/auth/status');
+                    const status = await statusResp.json();
+                    console.log('Direct check after 2FA:', status.state);
+                    
+                    if (status.state === 'completed') {
+                        hideProgress();
+                        document.getElementById('twofa-section').style.display = 'none';
+                        updateSessionUI(true);
+                        showNotification('Sesion completada', 'success');
+                        return;
+                    }
+                } catch (err) {
+                    console.error('Direct check failed:', err);
+                }
+                // Fallback to polling
+                startPolling();
+            }, 2000);
+        } else {
+            hideProgress();
+            btn.disabled = false;
+            showError(result.message || 'Error al enviar codigo');
+        }
+        
+    } catch (error) {
+        hideProgress();
+        btn.disabled = false;
+        showError('Error de conexion: ' + error.message);
+    }
+}
+
+async function handleLogout() {
+    try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        updateSessionUI(false);
+        showNotification('Sesión cerrada', 'success');
+    } catch (error) {
+        showNotification('Error al cerrar sesión', 'error');
+    }
+}
+
+async function saveNotifications(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    
+    try {
+        const response = await fetch('/api/config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                notifications: {
+                    email_enabled: formData.get('email_enabled') === 'on',
+                    email_recipients: formData.get('email_recipients')?.split(',').map(e => e.trim()),
+                    notify_on_success: formData.get('notify_on_success') === 'on',
+                    notify_on_error: formData.get('notify_on_error') === 'on'
+                }
+            })
+        });
+        
+        if (response.ok) {
+            showNotification('Guardado correctamente', 'success');
+        } else {
+            const err = await response.json();
+            showNotification(err.detail || 'Error al guardar', 'error');
+        }
+    } catch (error) {
+        showNotification('Error al guardar', 'error');
+    }
+}
+</script>
+
+<style>
+.config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 1.5rem;
+}
+
+.session-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem;
+    background: var(--background-color);
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+}
+
+.status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--danger-color);
+}
+
+.status-dot.valid {
+    background: var(--success-color);
+}
+
+.session-info {
+    padding: 1.5rem;
+    background: #d1fae5;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.session-info .success {
+    color: #065f46;
+    margin: 0 0 0.5rem 0;
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.session-info .session-details {
+    margin-bottom: 1rem;
+}
+
+/* 2FA Styles */
+.twofa-input {
+    font-size: 2rem;
+    text-align: center;
+    letter-spacing: 0.3rem;
+    font-weight: bold;
+    font-family: monospace;
+}
+
+.alert {
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+
+.alert-info {
+    background: #dbeafe;
+    border: 1px solid #3b82f6;
+    color: #1e40af;
+}
+
+.alert-info strong {
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+.alert-danger {
+    background: #fee2e2;
+    border: 1px solid #ef4444;
+    color: #991b1b;
+}
+
+/* Progress indicator */
+.progress-indicator {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: #f3f4f6;
+    border-radius: 8px;
+}
+
+.spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid #e5e7eb;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.form-control {
+    width: 100%;
+    padding: 0.75rem;
+    font-size: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+</style>
+{% endblock %}

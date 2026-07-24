@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Fichador Holded{% endblock %}</title>
+    <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+    <link rel="stylesheet" href="/static/css/style.css">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar">
+        <div class="navbar-brand">
+            <a href="/" class="navbar-logo">
+                <img src="/static/img/logo.png" alt="AutoHolded" class="navbar-logo-img">
+            </a>
+        </div>
+        <div class="navbar-menu">
+            <a href="/" class="navbar-item {% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
+            <a href="/config" class="navbar-item {% if request.url.path == '/config' %}active{% endif %}">Configuración</a>
+            <a href="/schedules" class="navbar-item {% if request.url.path == '/schedules' %}active{% endif %}">Horarios</a>
+            <a href="/calendar" class="navbar-item {% if request.url.path == '/calendar' %}active{% endif %}">Calendario</a>
+            <a href="/attendance" class="navbar-item {% if request.url.path == '/attendance' %}active{% endif %}">Historial</a>
+            <a href="/debug" class="navbar-item {% if request.url.path == '/debug' %}active{% endif %}">Debug</a>
+            <a href="/logs" class="navbar-item {% if request.url.path == '/logs' %}active{% endif %}">Logs</a>
+        </div>
+    </nav>
+    
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <footer class="footer">
+        <p>Fichador Automático Holded v1.0.0</p>
+    </footer>
+    
+    <script src="/static/js/main.js"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

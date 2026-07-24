@@ -1,0 +1,402 @@
+{% extends "base.html" %}
+
+{% block title %}Calendario - Fichador Holded{% endblock %}
+
+{% block content %}
+<div class="calendar-page">
+    <div class="page-header">
+        <h1>Calendario Laboral</h1>
+        <button class="btn btn-primary" id="btn-add-event">+ Añadir Evento</button>
+    </div>
+    
+    <div class="calendar-container">
+        <div class="calendar-nav">
+            <button class="btn btn-secondary" id="btn-prev-month">&lt;</button>
+            <h2 id="current-month">Julio 2026</h2>
+            <button class="btn btn-secondary" id="btn-next-month">&gt;</button>
+        </div>
+        
+        <div class="calendar-grid">
+            <div class="calendar-header">
+                <div>Lun</div>
+                <div>Mar</div>
+                <div>Mié</div>
+                <div>Jue</div>
+                <div>Vie</div>
+                <div>Sáb</div>
+                <div>Dom</div>
+            </div>
+            <div class="calendar-body" id="calendar-body">
+                <!-- Calendar days will be rendered here -->
+            </div>
+        </div>
+        
+        <div class="calendar-legend">
+            <div class="legend-item">
+                <span class="legend-color holiday"></span>
+                <span>Festivo</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color vacation"></span>
+                <span>Vacaciones</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color workday"></span>
+                <span>Día laborable</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Events List -->
+    <div class="card">
+        <h2>Próximos Eventos</h2>
+        <div id="events-list">
+            <p>Cargando eventos...</p>
+        </div>
+    </div>
+    
+    <!-- Event Modal -->
+    <div class="modal" id="event-modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Añadir Evento</h2>
+                <button class="modal-close" id="btn-close-modal">&times;</button>
+            </div>
+            <form id="event-form">
+                <div class="form-group">
+                    <label for="event-date">Fecha</label>
+                    <input type="date" id="event-date" name="event_date" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="event-type">Tipo de Evento</label>
+                    <select id="event-type" name="event_type" class="form-control" required>
+                        <option value="holiday">Festivo</option>
+                        <option value="vacation">Vacaciones</option>
+                        <option value="special_schedule">Horario especial</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="event-description">Descripción</label>
+                    <input type="text" id="event-description" name="description" class="form-control">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentDate = new Date();
+let events = [];
+
+document.addEventListener('DOMContentLoaded', function() {
+    renderCalendar();
+    loadEvents();
+    
+    document.getElementById('btn-prev-month').addEventListener('click', () => changeMonth(-1));
+    document.getElementById('btn-next-month').addEventListener('click', () => changeMonth(1));
+    document.getElementById('btn-add-event').addEventListener('click', () => openModal());
+    document.getElementById('btn-close-modal').addEventListener('click', closeModal);
+    document.getElementById('btn-cancel').addEventListener('click', closeModal);
+    document.getElementById('event-form').addEventListener('submit', saveEvent);
+});
+
+function renderCalendar() {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    
+    document.getElementById('current-month').textContent = 
+        new Date(year, month).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+    
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDay = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
+    
+    let html = '';
+    
+    // Previous month days
+    const prevMonth = new Date(year, month, 0);
+    for (let i = startDay - 1; i >= 0; i--) {
+        html += `<div class="calendar-day other-month">${prevMonth.getDate() - i}</div>`;
+    }
+    
+    // Current month days
+    for (let day = 1; day <= lastDay.getDate(); day++) {
+        const date = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
+        const event = events.find(e => e.event_date === date);
+        
+        let className = 'calendar-day';
+        if (isToday) className += ' today';
+        if (event) className += ` ${event.event_type}`;
+        
+        html += `<div class="${className}" data-date="${date}">${day}</div>`;
+    }
+    
+    // Next month days
+    const remaining = 42 - (startDay + lastDay.getDate());
+    for (let day = 1; day <= remaining; day++) {
+        html += `<div class="calendar-day other-month">${day}</div>`;
+    }
+    
+    document.getElementById('calendar-body').innerHTML = html;
+}
+
+function changeMonth(delta) {
+    currentDate.setMonth(currentDate.getMonth() + delta);
+    renderCalendar();
+}
+
+async function loadEvents() {
+    try {
+        const response = await fetch('/api/calendar');
+        events = await response.json();
+        renderCalendar();
+        renderEventsList();
+    } catch (error) {
+        console.error('Error loading events:', error);
+    }
+}
+
+function renderEventsList() {
+    const container = document.getElementById('events-list');
+    const upcomingEvents = events
+        .filter(e => new Date(e.event_date) >= new Date())
+        .sort((a, b) => new Date(a.event_date) - new Date(b.event_date))
+        .slice(0, 5);
+    
+    if (upcomingEvents.length === 0) {
+        container.innerHTML = '<p>No hay próximos eventos</p>';
+        return;
+    }
+    
+    container.innerHTML = upcomingEvents.map(event => `
+        <div class="event-item">
+            <span class="event-date">${new Date(event.event_date).toLocaleDateString('es-ES')}</span>
+            <span class="event-type badge badge-${event.event_type}">${event.event_type}</span>
+            <span class="event-description">${event.description || ''}</span>
+            <button class="btn btn-danger btn-sm" onclick="deleteEvent('${event.id}')">×</button>
+        </div>
+    `).join('');
+}
+
+function openModal() {
+    document.getElementById('event-modal').style.display = 'flex';
+    document.getElementById('event-date').value = currentDate.toISOString().split('T')[0];
+}
+
+function closeModal() {
+    document.getElementById('event-modal').style.display = 'none';
+}
+
+async function saveEvent(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    
+    try {
+        const response = await fetch('/api/calendar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                event_date: formData.get('event_date'),
+                event_type: formData.get('event_type'),
+                description: formData.get('description')
+            })
+        });
+        
+        if (response.ok) {
+            closeModal();
+            loadEvents();
+            showNotification('Evento guardado correctamente', 'success');
+        }
+    } catch (error) {
+        showNotification('Error al guardar evento', 'error');
+    }
+}
+
+async function deleteEvent(id) {
+    if (!confirm('¿Eliminar este evento?')) return;
+    
+    try {
+        const response = await fetch(`/api/calendar/${id}`, { method: 'DELETE' });
+        if (response.ok) {
+            loadEvents();
+            showNotification('Evento eliminado', 'success');
+        }
+    } catch (error) {
+        showNotification('Error al eliminar evento', 'error');
+    }
+}
+</script>
+
+<style>
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.calendar-container {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.calendar-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.calendar-grid {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.calendar-header {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    background: var(--background-color);
+    font-weight: 600;
+}
+
+.calendar-header div {
+    padding: 0.75rem;
+    text-align: center;
+}
+
+.calendar-body {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+}
+
+.calendar-day {
+    padding: 0.75rem;
+    text-align: center;
+    border: 1px solid var(--border-color);
+    min-height: 60px;
+}
+
+.calendar-day.other-month {
+    color: var(--text-secondary);
+    background: var(--background-color);
+}
+
+.calendar-day.today {
+    background: var(--primary-color);
+    color: white;
+    font-weight: bold;
+}
+
+.calendar-day.holiday {
+    background: #fee2e2;
+}
+
+.calendar-day.vacation {
+    background: #dbeafe;
+}
+
+.calendar-legend {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 1rem;
+    justify-content: center;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+}
+
+.legend-color.holiday { background: #fee2e2; }
+.legend-color.vacation { background: #dbeafe; }
+.legend-color.workday { background: white; border: 1px solid var(--border-color); }
+
+.event-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.event-item:last-child {
+    border-bottom: none;
+}
+
+.event-date {
+    font-weight: 500;
+    min-width: 100px;
+}
+
+.event-description {
+    flex: 1;
+    color: var(--text-secondary);
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 400px;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+.modal-content form {
+    padding: 1.5rem;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+}
+</style>
+{% endblock %}

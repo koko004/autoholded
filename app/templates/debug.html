@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block title %}Debug - Fichador Holded{% endblock %}
+
+{% block content %}
+<div class="debug-page">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <h1>Debug - Capturas de Playwright</h1>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; color: #6b7280;">
+                <input type="checkbox" id="auto-refresh" checked onchange="toggleAutoRefresh()">
+                Auto-refresh
+            </label>
+            <button class="btn btn-primary" onclick="loadSteps()">Actualizar</button>
+        </div>
+    </div>
+    
+    <p style="color: #6b7280; margin-bottom: 1.5rem;">
+        Capturas automaticas de cada paso durante la ejecucion de Playwright.
+        Se actualizan cada 3 segundos cuando esta activo el auto-refresh.
+    </p>
+    
+    <div id="no-steps" class="card" style="text-align: center; padding: 3rem; color: #6b7280;">
+        <p>No hay capturas disponibles.</p>
+        <p>Ejecuta un fichaje manual o automatico para ver las capturas aqui.</p>
+    </div>
+    
+    <div id="steps-container" style="display: none;">
+        <div class="timeline" id="timeline"></div>
+    </div>
+</div>
+
+<style>
+.debug-page .timeline {
+    position: relative;
+    padding-left: 2rem;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 0.75rem;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #e5e7eb;
+}
+
+.timeline-step {
+    position: relative;
+    margin-bottom: 2rem;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    overflow: hidden;
+}
+
+.timeline-step::before {
+    content: '';
+    position: absolute;
+    left: -1.55rem;
+    top: 1.5rem;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #3b82f6;
+    border: 2px solid white;
+    box-shadow: 0 0 0 2px #3b82f6;
+}
+
+.timeline-step.error::before {
+    background: #ef4444;
+    box-shadow: 0 0 0 2px #ef4444;
+}
+
+.step-header {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #f3f4f6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.step-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: #1f2937;
+}
+
+.step-meta {
+    font-size: 0.85rem;
+    color: #6b7280;
+}
+
+.step-meta .action-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    background: #dbeafe;
+    color: #1e40af;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-left: 0.5rem;
+}
+
+.step-url {
+    font-size: 0.8rem;
+    color: #9ca3af;
+    margin-top: 0.25rem;
+    word-break: break-all;
+}
+
+.step-screenshot {
+    padding: 0.5rem;
+    text-align: center;
+    background: #f9fafb;
+}
+
+.step-screenshot img {
+    max-width: 100%;
+    max-height: 500px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.2s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.step-screenshot img:hover {
+    transform: scale(1.02);
+}
+
+/* Lightbox */
+.lightbox {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.9);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+}
+
+.lightbox.active {
+    display: flex;
+}
+
+.lightbox img {
+    max-width: 95%;
+    max-height: 95%;
+    border-radius: 8px;
+}
+
+.lightbox-close {
+    position: absolute;
+    top: 1rem;
+    right: 1.5rem;
+    color: white;
+    font-size: 2rem;
+    cursor: pointer;
+}
+</style>
+
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+    <span class="lightbox-close">&times;</span>
+    <img id="lightbox-img" src="" alt="Screenshot ampliada">
+</div>
+
+<script>
+let refreshInterval = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadSteps();
+    toggleAutoRefresh();
+});
+
+function toggleAutoRefresh() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+    }
+    if (document.getElementById('auto-refresh').checked) {
+        refreshInterval = setInterval(loadSteps, 3000);
+    }
+}
+
+async function loadSteps() {
+    try {
+        const response = await fetch('/api/debug/steps');
+        const data = await response.json();
+        const steps = data.steps || [];
+        
+        if (steps.length === 0) {
+            document.getElementById('no-steps').style.display = 'block';
+            document.getElementById('steps-container').style.display = 'none';
+            return;
+        }
+        
+        document.getElementById('no-steps').style.display = 'none';
+        document.getElementById('steps-container').style.display = 'block';
+        
+        const container = document.getElementById('timeline');
+        container.innerHTML = '';
+        
+        steps.forEach((step, index) => {
+            const div = document.createElement('div');
+            div.className = 'timeline-step';
+            
+            const time = new Date(step.timestamp);
+            const timeStr = time.toLocaleTimeString('es-ES');
+            
+            div.innerHTML = `
+                <div class="step-header">
+                    <div>
+                        <h3>${step.step}</h3>
+                        ${step.url ? `<div class="step-url">${step.url}</div>` : ''}
+                    </div>
+                    <div class="step-meta">
+                        <span class="action-badge">${step.action || 'step'}</span>
+                        ${timeStr}
+                    </div>
+                </div>
+                <div class="step-screenshot">
+                    <img src="/api/debug/screenshot/${step.filename}" 
+                         alt="${step.step}" 
+                         onclick="openLightbox(this.src)"
+                         loading="lazy">
+                </div>
+            `;
+            container.appendChild(div);
+        });
+        
+    } catch (error) {
+        console.error('Error loading debug steps:', error);
+    }
+}
+
+function openLightbox(src) {
+    const lightbox = document.getElementById('lightbox');
+    document.getElementById('lightbox-img').src = src;
+    lightbox.classList.add('active');
+}
+
+function closeLightbox() {
+    document.getElementById('lightbox').classList.remove('active');
+}
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeLightbox();
+});
+</script>
+{% endblock %}
