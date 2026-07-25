@@ -763,23 +763,33 @@ class HoldedFichador:
 
     async def start_live_tracking(self) -> dict:
         """Click the play button to start live time tracking."""
+        self._clear_debug_steps()
         try:
             if not await self.start(headless=self.headless):
                 return {"status": "error", "message": "No se pudo iniciar el navegador"}
+
+            await self._async_debug_screenshot("Navegador abierto", "start")
 
             if not self.is_session_valid() or not await self.check_session():
                 await self.stop()
                 return {"status": "session_expired", "message": "Sesión expirada"}
 
-            if not await self.navigate_to_time_control():
-                await self.stop()
-                return {"status": "error", "message": "No se pudo navegar a Control horario"}
+            await self._async_debug_screenshot("Sesion verificada", "check_session")
 
-            await self.page.screenshot(path="data/before_start_tracking.png")
+            # Navigate to myzone (same URL as recorded .ts scripts)
+            await self.page.goto(
+                "https://app.holded.com/myzone",
+                wait_until='domcontentloaded',
+                timeout=60000
+            )
+            await asyncio.sleep(8)
+
+            await self._async_debug_screenshot("En myzone", "navigate")
+
             clicked = await self._click_play_button()
 
             await asyncio.sleep(3)
-            await self.page.screenshot(path="data/after_start_tracking.png")
+            await self._async_debug_screenshot("Despues de Play", "after_play")
 
             if clicked:
                 return {"status": "success", "message": "Fichaje iniciado"}
@@ -850,6 +860,8 @@ class HoldedFichador:
     async def pause_live_tracking(self) -> dict:
         """Pause live time tracking."""
         try:
+            self._clear_debug_steps()
+
             if not await self.start(headless=self.headless):
                 return {"status": "error", "message": "No se pudo iniciar el navegador"}
 
@@ -857,17 +869,18 @@ class HoldedFichador:
                 await self.stop()
                 return {"status": "session_expired", "message": "Sesión expirada"}
 
+            await self._async_debug_screenshot("Navegador abierto", "start")
+
             # Navigate to myzone
             await self.page.goto("https://app.holded.com/myzone", wait_until='domcontentloaded', timeout=60000)
             await asyncio.sleep(8)
 
-            # Take screenshot to see current state
-            await self.page.screenshot(path="data/before_pause_tracking.png")
+            await self._async_debug_screenshot("En myzone", "navigate")
 
             clicked = await self._click_pause_button()
 
             await asyncio.sleep(3)
-            await self.page.screenshot(path="data/after_pause_tracking.png")
+            await self._async_debug_screenshot("Despues de Pausa", "after_pause")
 
             if clicked:
                 return {"status": "success", "message": "Fichaje pausado"}
@@ -1043,6 +1056,8 @@ class HoldedFichador:
     async def stop_live_tracking(self) -> dict:
         """Stop live time tracking."""
         try:
+            self._clear_debug_steps()
+
             if not await self.start(headless=self.headless):
                 return {"status": "error", "message": "No se pudo iniciar el navegador"}
 
@@ -1050,11 +1065,19 @@ class HoldedFichador:
                 await self.stop()
                 return {"status": "session_expired", "message": "Sesión expirada"}
 
-            if not await self.navigate_to_time_control():
-                await self.stop()
-                return {"status": "error", "message": "No se pudo navegar a Control horario"}
+            await self._async_debug_screenshot("Navegador abierto", "start")
 
-            await self.page.screenshot(path="data/before_stop_tracking.png")
+            # Navigate to myzone (same as recorded .ts scripts)
+            await self.page.goto(
+                "https://app.holded.com/myzone",
+                wait_until='domcontentloaded',
+                timeout=60000
+            )
+            await asyncio.sleep(8)
+
+            await self._async_debug_screenshot("En myzone", "navigate")
+
+            await self._async_debug_screenshot("Antes de Stop", "before_stop")
             clicked = await self._click_stop_button()
 
             await asyncio.sleep(3)
@@ -1069,7 +1092,7 @@ class HoldedFichador:
             except:
                 pass
 
-            await self.page.screenshot(path="data/after_stop_tracking.png")
+            await self._async_debug_screenshot("Despues de Stop", "after_stop")
 
             if clicked:
                 return {"status": "success", "message": "Fichaje finalizado"}
