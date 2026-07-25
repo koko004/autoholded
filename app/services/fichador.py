@@ -1338,46 +1338,55 @@ class HoldedFichador:
                 await self.stop()
                 return {"status": "session_expired", "message": "Sesión expirada. Inicia sesión manualmente primero."}
 
-            # Navigate to Control horario
-            try:
-                control_btn = self.page.get_by_role("button", name="Control horario")
-                await control_btn.click()
-                await asyncio.sleep(3)
-            except:
-                if not await self.navigate_to_time_control():
-                    await self.stop()
-                    return {"status": "error", "message": "No se pudo navegar a Control horario"}
+            # Navigate directly to time-tracking URL
+            await self.page.goto(
+                "https://app.holded.com/myzone/time-tracking",
+                wait_until='domcontentloaded',
+                timeout=60000
+            )
+            await asyncio.sleep(4)
+            await self._async_debug_screenshot("En time-tracking", "navigate")
+
+            # Close Intercom panel if open (blocks everything)
+            await self._close_intercom_panel()
+            await asyncio.sleep(1)
+            await self._async_debug_screenshot("Intercom cerrado", "close_intercom")
 
             await self.page.screenshot(path="data/before_modificar_fichaje.png")
 
             # Click on the target date entry in the fichaje list
-            # Try multiple strategies to find the correct entry
             clicked_entry = await self._click_fichaje_entry(target_date)
             if not clicked_entry:
+                await self._async_debug_screenshot("No se encontro fichaje", "error_no_entry")
                 await self.stop()
                 return {"status": "error", "message": f"No se encontró el fichaje del {target_date}"}
 
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
+            await self._async_debug_screenshot("Fichaje clickeado", "clicked_entry")
 
             # Click "Editar fichajes" button
             try:
                 edit_btn = self.page.get_by_role("button", name="Editar fichajes")
                 if await edit_btn.count() > 0:
                     await edit_btn.click()
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(3)
                     logger.info("Clicked 'Editar fichajes' button")
                 else:
                     # Fallback: try text selector
                     edit_btn = await self.page.query_selector('button:has-text("Editar fichajes")')
                     if edit_btn:
                         await edit_btn.click()
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(3)
                     else:
+                        await self._async_debug_screenshot("No se encontro Editar fichajes", "error_no_edit_btn")
                         await self.stop()
                         return {"status": "error", "message": "No se encontró el botón 'Editar fichajes'"}
             except Exception as e:
+                await self._async_debug_screenshot("Error click Editar fichajes", "error_edit_btn")
                 await self.stop()
                 return {"status": "error", "message": f"No se pudo abrir el formulario de edición: {e}"}
+
+            await self._async_debug_screenshot("Formulario de edicion abierto", "edit_form_open")
 
             # Set location if provided
             if location:
@@ -1395,25 +1404,27 @@ class HoldedFichador:
             # Fill the edit form rows
             await self._fill_edit_form_rows(timeline)
             await asyncio.sleep(1)
+            await self._async_debug_screenshot("Formulario rellenado", "fill_form")
 
             # Click "Guardar" to save changes
             try:
                 save_btn = self.page.get_by_role("button", name="Guardar")
                 if await save_btn.count() > 0:
                     await save_btn.click()
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(3)
                     # Click again if there's a confirmation
                     try:
                         save_btn2 = self.page.get_by_role("button", name="Guardar")
                         if await save_btn2.count() > 0:
                             await save_btn2.click()
-                            await asyncio.sleep(2)
+                            await asyncio.sleep(3)
                     except:
                         pass
                     logger.info("Clicked 'Guardar' button")
             except:
                 logger.warning("Could not find Guardar button")
 
+            await self._async_debug_screenshot("Despues de Guardar", "after_save")
             await self.page.screenshot(path="data/after_modificar_fichaje.png")
 
             # Check for Holded errors
