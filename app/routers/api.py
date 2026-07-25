@@ -44,6 +44,16 @@ async def _notify_telegram(action_name: str, result: dict):
         logger.error(f"Telegram notification failed: {e}", exc_info=True)
 
 
+async def _notify_telegram_start(action_name: str):
+    """Send instant 'action started' message before Playwright runs."""
+    try:
+        from app.services.telegram_bot import telegram_bot
+        if telegram_bot.is_running:
+            await telegram_bot.send_notification(f"⏳ *{action_name}...*")
+    except Exception as e:
+        logger.error(f"Telegram start notify failed: {e}")
+
+
 # === 2FA Authentication ===
 class LoginRequest(BaseModel):
     email: str
@@ -533,6 +543,7 @@ async def force_fichaje(request: ForceFichajeRequest):
     }
 
     if fichaje_type == "entry":
+        await _notify_telegram_start("▶️ Iniciando fichaje")
         result = await fichador.start_live_tracking()
         if result.get("status") == "success":
             save_attendance({
@@ -544,6 +555,7 @@ async def force_fichaje(request: ForceFichajeRequest):
         await _notify_telegram(action_names.get(fichaje_type, fichaje_type), result)
         return result
     elif fichaje_type == "pause_start":
+        await _notify_telegram_start("⏸ Pausando fichaje")
         result = await fichador.pause_live_tracking()
         if result.get("status") == "success":
             save_attendance({
@@ -554,6 +566,7 @@ async def force_fichaje(request: ForceFichajeRequest):
         await _notify_telegram(action_names.get(fichaje_type, fichaje_type), result)
         return result
     elif fichaje_type == "pause_end":
+        await _notify_telegram_start("▶️ Reanudando fichaje")
         result = await fichador.start_live_tracking()
         if result.get("status") == "success":
             save_attendance({
@@ -564,6 +577,7 @@ async def force_fichaje(request: ForceFichajeRequest):
         await _notify_telegram(action_names.get(fichaje_type, fichaje_type), result)
         return result
     elif fichaje_type == "exit":
+        await _notify_telegram_start("⏹ Finalizando fichaje")
         result = await fichador.stop_live_tracking()
         if result.get("status") == "success":
             save_attendance({
@@ -575,6 +589,7 @@ async def force_fichaje(request: ForceFichajeRequest):
         await _notify_telegram(action_names.get(fichaje_type, fichaje_type), result)
         return result
     elif fichaje_type == "manual":
+        await _notify_telegram_start("📅 Fichaje manual")
         location = active_schedule.get("location") or "ARCO C.B."
         result = await fichador.fichar_manual(work_blocks=work_blocks, location=location)
         await _notify_telegram(action_names.get(fichaje_type, fichaje_type), result)
@@ -618,6 +633,7 @@ async def manual_fichaje(request: ManualFichajeRequest):
     # Use location from request, or from schedule, or default
     fichaje_location = request.location or schedule.get("location") or "ARCO C.B."
 
+    await _notify_telegram_start(f"📅 Fichaje manual {target.isoformat()}")
     result = await fichador.fichar_manual(
         work_blocks=work_blocks,
         target_date=target,
