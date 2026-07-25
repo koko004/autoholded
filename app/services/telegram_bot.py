@@ -76,6 +76,7 @@ class TelegramBotService:
                     "/pause - Pausar fichaje\n"
                     "/stop - Finalizar fichaje\n"
                     "/fichar - Fichaje manual (pedira fecha)\n"
+                    "/corregir - Corregir fichaje de hoy con horario activo\n"
                     "/start_scheduler - Iniciar scheduler\n"
                     "/stop_scheduler - Detener scheduler\n"
                     "/screenshots - Cambiar modo de capturas\n"
@@ -197,6 +198,41 @@ class TelegramBotService:
                 except Exception as e:
                     await update.message.reply_text(f"❌ Error: {e}")
 
+            async def cmd_corregir(update: Update, context: ContextTypes.DEFAULT_TYPE):
+                if not self._check_access(update):
+                    return
+                await update.message.reply_text("🔧 Corrigiendo fichaje de hoy...")
+                try:
+                    from app.services.storage import get_schedules
+                    from datetime import date as date_cls
+
+                    schedules = get_schedules()
+                    work_blocks = []
+                    location = "ARCO C.B."
+                    for s in schedules:
+                        if s.get("is_active", True):
+                            work_blocks = s.get("work_blocks", [])
+                            location = s.get("location", "ARCO C.B.")
+                            break
+
+                    if not work_blocks:
+                        await update.message.reply_text("❌ No hay horarios configurados")
+                        return
+
+                    fichador = self._get_fichador()
+                    loop = asyncio.get_event_loop()
+                    result = await loop.run_in_executor(
+                        None,
+                        lambda: self._run_async(fichador.modificar_fichaje(
+                            target_date=date_cls.today(),
+                            work_blocks=work_blocks,
+                            location=location
+                        ))
+                    )
+                    await self._send_action_result(update, result, "Corregir fichaje de hoy")
+                except Exception as e:
+                    await update.message.reply_text(f"❌ Error: {e}")
+
             async def cmd_screenshots(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not self._check_access(update):
                     return
@@ -292,6 +328,7 @@ class TelegramBotService:
             self.app.add_handler(CommandHandler("cancel", cmd_cancel))
             self.app.add_handler(CommandHandler("start_scheduler", cmd_start_scheduler))
             self.app.add_handler(CommandHandler("stop_scheduler", cmd_stop_scheduler))
+            self.app.add_handler(CommandHandler("corregir", cmd_corregir))
             self.app.add_handler(CommandHandler("screenshots", cmd_screenshots))
             self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
