@@ -117,7 +117,11 @@ def get_attendance(start_date: Optional[str] = None, end_date: Optional[str] = N
 
 
 def save_attendance(log: Dict[str, Any]) -> Dict[str, Any]:
-    """Save an attendance log. Upserts by date (one record per day)."""
+    """Save an attendance log. Upserts by date (one record per day).
+    
+    When saving a live tracking action (entry/pause/stop), only updates
+    relevant fields so old stale data doesn't persist.
+    """
     data = _load_json(ATTENDANCE_FILE)
     logs = data.get("logs", [])
 
@@ -131,24 +135,58 @@ def save_attendance(log: Dict[str, Any]) -> Dict[str, Any]:
             break
 
     if existing_idx is not None:
-        # Update existing record, merging fields
         existing = logs[existing_idx]
-        for key, value in log.items():
-            if value is not None and key != "id":
-                existing[key] = value
+        source = log.get("source", "")
+
+        if source in ("scheduler", "manual") and log.get("status"):
+            action_status = log.get("status")
+
+            if action_status == "in_progress" and log.get("entry_time"):
+                existing["entry_time"] = log["entry_time"]
+                existing["status"] = "in_progress"
+                existing["source"] = source
+            elif action_status == "paused":
+                existing["status"] = "paused"
+                existing["source"] = source
+                if log.get("pause_minutes"):
+                    existing["pause_minutes"] = log["pause_minutes"]
+            elif action_status == "completed":
+                if log.get("exit_time"):
+                    existing["exit_time"] = log["exit_time"]
+                existing["status"] = "completed"
+                existing["source"] = source
+                if log.get("pause_minutes"):
+                    existing["pause_minutes"] = log["pause_minutes"]
+        else:
+            for key, value in log.items():
+                if value is not None and key != "id":
+                    existing[key] = value
+
         existing["updated_at"] = datetime.now().isoformat()
         logs[existing_idx] = existing
         result = existing
     else:
-        # Create new record
         log["id"] = str(uuid4())
         log["created_at"] = datetime.now().isoformat()
+        if "pause_minutes" not in log:
+            log["pause_minutes"] = 0
+        if "total_hours" not in log:
+            log["total_hours"] = 0.0
         logs.append(log)
         result = log
 
     data["logs"] = logs
     _save_json(ATTENDANCE_FILE, data)
     return result
+
+
+def delete_attendance(record_id: str) -> bool:
+    """Delete an attendance record by ID."""
+    data = _load_json(ATTENDANCE_FILE)
+    logs = data.get("logs", [])
+    data["logs"] = [l for l in logs if l.get("id") != record_id]
+    _save_json(ATTENDANCE_FILE, data)
+    return True
 
 
 # === Calendar ===

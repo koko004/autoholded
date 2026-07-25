@@ -175,11 +175,12 @@ function renderTable() {
             <td>${new Date(record.date).toLocaleDateString('es-ES')}</td>
             <td>${formatTime(record.entry_time)}</td>
             <td>${formatTime(record.exit_time)}</td>
-            <td>${record.pause_minutes} min</td>
+            <td>${record.pause_minutes || 0} min</td>
             <td>${calculateTotal(record)}</td>
-            <td><span class="badge badge-${record.status}">${record.status}</span></td>
+            <td><span class="badge badge-${record.status || 'unknown'}">${record.status || '-'}</span></td>
             <td>
                 <button class="btn btn-secondary btn-sm" onclick="editRecord('${record.id}')">Editar en Holded</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteRecord('${record.id}')">Eliminar</button>
             </td>
         </tr>
     `).join('');
@@ -268,6 +269,23 @@ function editRecord(id) {
     }
     
     openEditModal(record);
+}
+
+async function deleteRecord(id) {
+    if (!confirm('¿Eliminar este registro del historial?')) return;
+    
+    try {
+        const res = await fetch(`/api/attendance/${id}`, { method: 'DELETE' });
+        const result = await res.json();
+        if (result.status === 'success') {
+            showNotification('Registro eliminado', 'success');
+            loadAttendance();
+        } else {
+            showNotification(result.message || 'Error al eliminar', 'error');
+        }
+    } catch (e) {
+        showNotification('Error de conexión', 'error');
+    }
 }
 
 function openEditModal(record) {

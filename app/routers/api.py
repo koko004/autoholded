@@ -392,6 +392,13 @@ async def get_attendance(
     return logs
 
 
+@router.delete("/attendance/{record_id}")
+async def delete_attendance_record(record_id: str):
+    from app.services.storage import delete_attendance as storage_delete_attendance
+    storage_delete_attendance(record_id)
+    return {"status": "success", "message": "Registro eliminado"}
+
+
 @router.get("/attendance/today")
 async def get_today_status():
     from app.services.storage import get_schedules, get_attendance as storage_get_attendance
