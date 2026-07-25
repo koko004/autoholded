@@ -1,5 +1,6 @@
-# Autoholded
-
+# Autoholded 
+<img width="500" alt="logo" src="https://github.com/user-attachments/assets/8f6ff084-bf38-4b6b-8230-28c6f5dc4d9d" />
+<img width="1920" height="1239" alt="image" src="https://github.com/user-attachments/assets/4fd7d792-7c8c-4218-9c19-50677bb39a38" />
 Sistema automatizado de fichaje para [Holded ERP](https://www.holded.com/) usando Playwright. Dashboard web para configuración, monitorización y control manual. Bot de Telegram para control remoto.
 
 **Interfaz en español** | **Timezone: Europe/Madrid**
