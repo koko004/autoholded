@@ -87,6 +87,50 @@ async def check_session():
         return {"valid": False, "error": str(e)}
 
 
+@router.get("/auth/session-info")
+async def get_session_info():
+    """Get session details: user email, saved_at, time remaining."""
+    from pathlib import Path
+    import json
+    from datetime import datetime
+
+    session_file = Path("data/cookies/holded_session.json")
+    if not session_file.exists():
+        return {"active": False, "message": "No hay sesión guardada"}
+
+    try:
+        data = json.loads(session_file.read_text())
+        saved_at_str = data.get("saved_at", "")
+        saved_at = datetime.fromisoformat(saved_at_str)
+        now = datetime.now()
+        elapsed = (now - saved_at).total_seconds()
+        ttl_seconds = max(0, 604800 - elapsed)
+        days = int(ttl_seconds // 86400)
+        hours = int((ttl_seconds % 86400) // 3600)
+        minutes = int((ttl_seconds % 3600) // 60)
+
+        user_email = data.get("user_email", "")
+        if not user_email:
+            origins = data.get("origins", [])
+            for o in origins:
+                for cookie in o.get("cookies", []):
+                    if "holded" in cookie.get("name", "").lower() and "email" in cookie.get("value", "").lower():
+                        user_email = cookie.get("value", "")
+                        break
+
+        return {
+            "active": ttl_seconds > 0,
+            "user_email": user_email,
+            "saved_at": saved_at.isoformat(),
+            "ttl_days": days,
+            "ttl_hours": hours,
+            "ttl_minutes": minutes,
+            "ttl_seconds": int(ttl_seconds),
+        }
+    except Exception as e:
+        return {"active": False, "message": f"Error leyendo sesión: {str(e)}"}
+
+
 @router.post("/auth/logout")
 async def logout():
     """Clear saved session."""
@@ -318,10 +362,41 @@ async def get_attendance(
 
 @router.get("/attendance/today")
 async def get_today_status():
+    from app.services.storage import get_schedules, get_attendance as storage_get_attendance
+    from datetime import date as date_cls
+    today = date_cls.today().isoformat()
+    today_logs = storage_get_attendance(start_date=today, end_date=today)
+    
+    has_entry = False
+    has_exit = False
+    current_status = "not_started"
+    entry_time = None
+    exit_time = None
+    total_hours = 0.0
+
+    if today_logs:
+        has_entry = True
+        last_log = today_logs[-1]
+        blocks = last_log.get("work_blocks", [])
+        if blocks:
+            entry_time = blocks[0].get("entry")
+            exit_time = blocks[-1].get("exit")
+            if exit_time and exit_time != "00:00":
+                has_exit = True
+                current_status = "completed"
+            else:
+                current_status = "in_progress"
+        total_hours = last_log.get("total_hours", 0)
+
     return TodayStatus(
-        is_workday=True, has_entry=False, has_exit=False,
-        current_status="not_started", entry_time=None, exit_time=None,
-        pause_minutes=0, total_hours=0.0
+        is_workday=True,
+        has_entry=has_entry,
+        has_exit=has_exit,
+        current_status=current_status,
+        entry_time=entry_time,
+        exit_time=exit_time,
+        pause_minutes=0,
+        total_hours=total_hours
     )
 
 
@@ -465,6 +540,28 @@ async def manual_fichaje(request: ManualFichajeRequest):
         target_date=target,
         location=fichaje_location
     )
+
+    if result.get("status") == "success":
+        total_hours = 0
+        for block in work_blocks:
+            try:
+                entry_parts = block.get("entry", "0:0").split(":")
+                exit_parts = block.get("exit", "0:0").split(":")
+                entry_mins = int(entry_parts[0]) * 60 + int(entry_parts[1])
+                exit_mins = int(exit_parts[0]) * 60 + int(exit_parts[1])
+                total_hours += (exit_mins - entry_mins) / 60
+            except:
+                pass
+
+        save_attendance({
+            "date": target.isoformat(),
+            "location": fichaje_location,
+            "work_blocks": work_blocks,
+            "total_hours": round(total_hours, 2),
+            "status": "completed",
+            "source": "manual"
+        })
+
     return result
 
 
@@ -491,14 +588,105 @@ async def modify_fichaje(request: ModifyFichajeRequest):
 async def get_logs(
     level: Optional[str] = Query(None),
     module: Optional[str] = Query(None),
-    limit: int = Query(100, ge=1, le=1000)
+    limit: int = Query(200, ge=1, le=1000)
 ):
-    return []
+    """Read actual log entries from the application log file."""
+    from pathlib import Path
+    import re
+
+    log_dir = Path("logs")
+    log_entries = []
+
+    if not log_dir.exists():
+        return []
+
+    log_files = sorted(log_dir.glob("*.log"), reverse=True)
+    for log_file in log_files[:3]:
+        try:
+            content = log_file.read_text(errors="ignore")
+            for line in content.strip().split("\n"):
+                if not line.strip():
+                    continue
+                match = re.match(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*?\[(\w+)\].*?app\.(\w+):?\s*(.*)', line)
+                if match:
+                    ts, lvl, mod, msg = match.groups()
+                    if level and lvl.lower() != level.lower():
+                        continue
+                    if module and mod.lower() != module.lower():
+                        continue
+                    log_entries.append({
+                        "timestamp": ts,
+                        "level": lvl.lower(),
+                        "module": mod,
+                        "message": msg.strip()
+                    })
+        except Exception:
+            continue
+
+    log_entries.sort(key=lambda x: x["timestamp"], reverse=True)
+    return log_entries[:limit]
 
 
 @router.delete("/logs/clean")
 async def clean_logs(days_to_keep: int = Query(30, ge=1)):
-    return MessageResponse(message=f"Cleaned logs older than {days_to_keep} days")
+    from pathlib import Path
+    import time
+    log_dir = Path("logs")
+    if not log_dir.exists():
+        return MessageResponse(message="No hay logs que limpiar")
+    cutoff = time.time() - (days_to_keep * 86400)
+    cleaned = 0
+    for f in log_dir.glob("*.log"):
+        if f.stat().st_mtime < cutoff:
+            f.unlink()
+            cleaned += 1
+    return MessageResponse(message=f"Eliminados {cleaned} archivos de log")
+
+
+@router.get("/logs/stream")
+async def stream_logs():
+    """SSE endpoint for live log streaming."""
+    from fastapi.responses import StreamingResponse
+    from pathlib import Path
+    import re
+    import asyncio
+
+    async def generate():
+        log_dir = Path("logs")
+        last_pos = 0
+
+        while True:
+            if not log_dir.exists():
+                await asyncio.sleep(2)
+                continue
+
+            log_files = sorted(log_dir.glob("*.log"), reverse=True)
+            if log_files:
+                log_file = log_files[0]
+                try:
+                    content = log_file.read_text(errors="ignore")
+                    lines = content.strip().split("\n")
+                    new_lines = lines[last_pos:]
+                    last_pos = len(lines)
+
+                    for line in new_lines:
+                        if not line.strip():
+                            continue
+                        match = re.match(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*?\[(\w+)\].*?app\.(\w+):?\s*(.*)', line)
+                        if match:
+                            ts, lvl, mod, msg = match.groups()
+                            import json
+                            entry = json.dumps({
+                                "timestamp": ts, "level": lvl.lower(),
+                                "module": mod, "message": msg.strip()
+                            })
+                            yield f"data: {entry}\n\n"
+                except Exception:
+                    pass
+
+            await asyncio.sleep(3)
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 # === Debug Endpoints ===

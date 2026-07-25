@@ -74,9 +74,12 @@
 <script>
 let logsData = [];
 let autoRefresh = null;
+let eventSource = null;
+let liveMode = true;
 
 document.addEventListener('DOMContentLoaded', function() {
     loadLogs();
+    startLiveStream();
     
     document.getElementById('filter-form').addEventListener('submit', applyFilters);
     document.getElementById('btn-refresh').addEventListener('click', loadLogs);
@@ -84,10 +87,27 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btn-close-modal').addEventListener('click', closeCleanModal);
     document.getElementById('btn-cancel').addEventListener('click', closeCleanModal);
     document.getElementById('clean-form').addEventListener('submit', cleanLogs);
-    
-    // Auto-refresh every 30 seconds
-    autoRefresh = setInterval(loadLogs, 30000);
 });
+
+function startLiveStream() {
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource('/api/logs/stream');
+    eventSource.onmessage = function(e) {
+        try {
+            const entry = JSON.parse(e.data);
+            const levelFilter = document.getElementById('level-filter').value;
+            const moduleFilter = document.getElementById('module-filter').value;
+            if (levelFilter && entry.level !== levelFilter) return;
+            if (moduleFilter && !entry.module.toLowerCase().includes(moduleFilter.toLowerCase())) return;
+            logsData.unshift(entry);
+            if (logsData.length > 500) logsData.pop();
+            renderLogs();
+        } catch(err) {}
+    };
+    eventSource.onerror = function() {
+        setTimeout(startLiveStream, 5000);
+    };
+}
 
 async function loadLogs(level = null, module = null) {
     try {
@@ -114,18 +134,23 @@ function renderLogs() {
     
     container.innerHTML = logsData.map(log => `
         <div class="log-entry log-${log.level}">
-            <span class="log-timestamp">${new Date(log.timestamp).toLocaleString('es-ES')}</span>
+            <span class="log-timestamp">${log.timestamp}</span>
             <span class="log-level badge badge-${log.level}">${log.level}</span>
             <span class="log-module">[${log.module}]</span>
-            <span class="log-message">${log.message}</span>
+            <span class="log-message">${escapeHtml(log.message)}</span>
         </div>
     `).join('');
 }
 
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 function applyFilters(e) {
     e.preventDefault();
-    const formData = new FormData(e.target);
-    loadLogs(formData.get('level'), formData.get('module'));
+    loadLogs(document.getElementById('level-filter').value || null, document.getElementById('module-filter').value || null);
 }
 
 function openCleanModal() {

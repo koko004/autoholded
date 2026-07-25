@@ -41,10 +41,11 @@
                 
                 <div class="form-group">
                     <label for="schedule-location">Ubicación (centro de trabajo)</label>
-                    <select id="schedule-location" name="location" class="form-control">
-                        <option value="">Sin definir</option>
-                        <option value="ARCO C.B.">ARCO C.B.</option>
-                    </select>
+                    <input type="text" id="schedule-location" name="location" class="form-control" 
+                        list="location-options" placeholder="Escribe o selecciona una ubicación">
+                    <datalist id="location-options">
+                        <option value="ARCO C.B.">
+                    </datalist>
                 </div>
                 
                 <div class="form-group">

@@ -62,8 +62,17 @@
             <!-- Session Info -->
             <div class="session-info" id="session-info" style="display: none;">
                 <p class="success">✓ Sesión activa</p>
-                <p class="session-details"><small>Sesión válida por 7 días</small></p>
-                <button class="btn btn-secondary" id="btn-logout">Cerrar Sesión</button>
+                <div class="session-details-box">
+                    <div class="session-row"><strong>Usuario:</strong> <span id="session-user">-</span></div>
+                    <div class="session-row"><strong>Guardada:</strong> <span id="session-saved">-</span></div>
+                    <div class="session-row"><strong>Caduca en:</strong> <span id="session-ttl">-</span></div>
+                    <div class="session-ttl-bar"><div class="session-ttl-fill" id="session-ttl-bar"></div></div>
+                </div>
+                <div class="session-actions">
+                    <button class="btn btn-secondary" id="btn-check-session">Comprobar sesión</button>
+                    <button class="btn btn-danger" id="btn-logout">Cerrar Sesión</button>
+                </div>
+                <div id="check-result" style="display: none; margin-top: 0.5rem;"></div>
             </div>
             
             <!-- Error message -->
@@ -114,6 +123,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('twofa-form').addEventListener('submit', handle2FA);
     document.getElementById('notification-form').addEventListener('submit', saveNotifications);
     document.getElementById('btn-logout').addEventListener('click', handleLogout);
+    document.getElementById('btn-check-session').addEventListener('click', handleCheckSession);
 });
 
 async function checkSession() {
@@ -121,9 +131,54 @@ async function checkSession() {
         const response = await fetch('/api/auth/check-session', { method: 'POST' });
         const result = await response.json();
         updateSessionUI(result.valid);
+        if (result.valid) loadSessionInfo();
     } catch (error) {
         updateSessionUI(false);
     }
+}
+
+async function loadSessionInfo() {
+    try {
+        const res = await fetch('/api/auth/session-info');
+        const info = await res.json();
+        if (info.active) {
+            document.getElementById('session-user').textContent = info.user_email || 'Desconocido';
+            document.getElementById('session-saved').textContent = new Date(info.saved_at).toLocaleString('es-ES');
+            document.getElementById('session-ttl').textContent = `${info.ttl_days}d ${info.ttl_hours}h ${info.ttl_minutes}m`;
+            const pct = Math.round((info.ttl_seconds / 604800) * 100);
+            const bar = document.getElementById('session-ttl-bar');
+            bar.style.width = pct + '%';
+            bar.className = 'session-ttl-fill' + (pct < 15 ? ' critical' : pct < 40 ? ' warning' : '');
+        }
+    } catch (e) {}
+}
+
+async function handleCheckSession() {
+    const btn = document.getElementById('btn-check-session');
+    const result = document.getElementById('check-result');
+    btn.disabled = true;
+    btn.textContent = 'Comprobando...';
+    result.style.display = 'none';
+    try {
+        const res = await fetch('/api/auth/check-session', { method: 'POST' });
+        const data = await res.json();
+        result.style.display = 'block';
+        if (data.valid) {
+            result.className = 'alert alert-success';
+            result.innerHTML = '✓ La sesión está activa en Holded';
+        } else {
+            result.className = 'alert alert-danger';
+            result.innerHTML = '✗ La sesión ha caducado o no es válida';
+        }
+        updateSessionUI(data.valid);
+        if (data.valid) loadSessionInfo();
+    } catch (e) {
+        result.style.display = 'block';
+        result.className = 'alert alert-danger';
+        result.innerHTML = 'Error al comprobar la sesión';
+    }
+    btn.disabled = false;
+    btn.textContent = 'Comprobar sesión';
 }
 
 function updateSessionUI(isValid) {
@@ -400,18 +455,57 @@ async function saveNotifications(e) {
     padding: 1.5rem;
     background: #d1fae5;
     border-radius: 8px;
-    text-align: center;
+    text-align: left;
 }
 
 .session-info .success {
     color: #065f46;
-    margin: 0 0 0.5rem 0;
+    margin: 0 0 1rem 0;
     font-weight: 600;
     font-size: 1.1rem;
+    text-align: center;
 }
 
-.session-info .session-details {
+.session-details-box {
+    background: white;
+    border-radius: 8px;
+    padding: 1rem;
     margin-bottom: 1rem;
+}
+
+.session-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.3rem 0;
+    font-size: 0.9rem;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.session-row:last-of-type { border-bottom: none; }
+.session-row strong { color: #374151; }
+
+.session-ttl-bar {
+    height: 6px;
+    background: #e5e7eb;
+    border-radius: 3px;
+    margin-top: 0.5rem;
+    overflow: hidden;
+}
+
+.session-ttl-fill {
+    height: 100%;
+    background: var(--success-color, #10b981);
+    border-radius: 3px;
+    transition: width 0.5s ease;
+}
+
+.session-ttl-fill.warning { background: #f59e0b; }
+.session-ttl-fill.critical { background: #ef4444; }
+
+.session-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
 }
 
 /* 2FA Styles */
