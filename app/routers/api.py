@@ -32,12 +32,16 @@ async def _notify_telegram(action_name: str, result: dict):
         from app.services.telegram_bot import telegram_bot
         if telegram_bot.is_running:
             steps = fichador.get_debug_steps()
+            logger.info(f"Telegram notify: {action_name}, {len(steps)} steps, bot running")
             await telegram_bot.send_screenshots_from_steps(
                 steps, action_name,
                 result.get("status", "error")
             )
+            logger.info(f"Telegram notify sent: {action_name}")
+        else:
+            logger.info(f"Telegram bot not running, skip notify")
     except Exception as e:
-        logger.error(f"Telegram notification failed: {e}")
+        logger.error(f"Telegram notification failed: {e}", exc_info=True)
 
 
 # === 2FA Authentication ===

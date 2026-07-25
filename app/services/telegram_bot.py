@@ -63,6 +63,7 @@ class TelegramBotService:
             from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
             self.app = ApplicationBuilder().token(self._token).build()
+            self.bot = self.app.bot
 
             async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not self._check_access(update):
@@ -424,6 +425,7 @@ class TelegramBotService:
     async def send_screenshots_from_steps(self, steps: list, action_name: str, result_status: str = "success"):
         """Send screenshots from debug steps list (called after fichaje actions)."""
         if not self._running or not self._chat_id or not self.bot:
+            logger.info(f"send_screenshots skip: running={self._running}, chat_id={self._chat_id}, bot={bool(self.bot)}")
             return
 
         screenshots = []
@@ -433,6 +435,8 @@ class TelegramBotService:
                 path = str(DEBUG_DIR / filename)
                 if Path(path).exists():
                     screenshots.append({"step": step.get("step", ""), "path": path})
+
+        logger.info(f"send_screenshots: {len(screenshots)} screenshots found, mode={self._screenshot_mode}")
 
         if not screenshots:
             return
