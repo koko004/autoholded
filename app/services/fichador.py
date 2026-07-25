@@ -757,6 +757,70 @@ class HoldedFichador:
             logger.error(f"Failed to navigate: {e}")
             return False
 
+    async def _close_intercom_panel(self):
+        """Close the Intercom help panel if it's open. It blocks the timer controls."""
+        try:
+            # Strategy 1: JavaScript - click any element with data-testid="close-button"
+            result = await self.page.evaluate('''() => {
+                // Click the close button (div with role="button", not a <button>)
+                const closeBtn = document.querySelector('[data-testid="close-button"]');
+                if (closeBtn) { closeBtn.click(); return 'clicked_close_button'; }
+
+                // Try aria-label "Cerrar"
+                const cerrar = document.querySelector('[aria-label="Cerrar"]');
+                if (cerrar) { cerrar.click(); return 'clicked_cerrar'; }
+
+                // Try aria-label "Close"
+                const close = document.querySelector('[aria-label="Close"]');
+                if (close) { close.click(); return 'clicked_close'; }
+
+                // Try Intercom class
+                const intercomClose = document.querySelector('.intercom-close-button');
+                if (intercomClose) { intercomClose.click(); return 'clicked_intercom_close'; }
+
+                return 'not_found';
+            }''')
+            logger.info(f"Intercom close attempt: {result}")
+
+            if result != 'not_found':
+                await asyncio.sleep(1)
+                # Verify it closed
+                still_open = await self.page.evaluate('''() => {
+                    const panel = document.querySelector('[data-testid="close-button"]');
+                    return panel ? panel.offsetParent !== null : false;
+                }''')
+                if not still_open:
+                    logger.info("Intercom panel closed successfully")
+                    return
+
+            # Strategy 2: Hide the entire Intercom container via JS
+            await self.page.evaluate('''() => {
+                // Hide all Intercom elements
+                document.querySelectorAll('[id*="intercom"], [class*="intercom"], [data-testid*="intercom"]').forEach(el => {
+                    el.style.display = 'none';
+                    el.style.visibility = 'hidden';
+                    el.style.height = '0';
+                    el.style.overflow = 'hidden';
+                });
+                // Also hide the space-help-panel
+                const helpPanel = document.querySelector('[aria-label="space-help-panel"], #spaces-help-panel');
+                if (helpPanel) {
+                    helpPanel.style.display = 'none';
+                    helpPanel.style.visibility = 'hidden';
+                }
+            }''')
+            await asyncio.sleep(0.5)
+            logger.info("Hidden Intercom panel via CSS manipulation")
+
+        except Exception as e:
+            logger.debug(f"Could not close Intercom panel: {e}")
+            # Last resort: press Escape
+            try:
+                await self.page.keyboard.press("Escape")
+                await asyncio.sleep(0.5)
+            except:
+                pass
+
     # ============================================================
     # LIVE TRACKING - Using exact MUI selectors from recorded scripts
     # ============================================================
@@ -776,15 +840,18 @@ class HoldedFichador:
 
             await self._async_debug_screenshot("Sesion verificada", "check_session")
 
-            # Navigate to myzone (same URL as recorded .ts scripts)
+            # Navigate to time-tracking (where the play/stop/pause controls live)
             await self.page.goto(
-                "https://app.holded.com/myzone",
+                "https://app.holded.com/myzone/time-tracking",
                 wait_until='domcontentloaded',
                 timeout=60000
             )
             await asyncio.sleep(8)
 
-            await self._async_debug_screenshot("En myzone", "navigate")
+            await self._async_debug_screenshot("En time-tracking", "navigate")
+
+            await self._close_intercom_panel()
+            await self._async_debug_screenshot("Intercom cerrado", "close_intercom")
 
             clicked = await self._click_play_button()
 
@@ -806,44 +873,36 @@ class HoldedFichador:
     async def _click_play_button(self) -> bool:
         """Click the play/start button in the live tracking widget.
 
-        From recorded .ts script (holded-fichar-ahora.ts line 19):
-          page.locator('.MuiButtonBase-root.MuiIconButton-root.MuiIconButton-sizeMedium.mui-1lg5qud').click()
-        The dynamic class mui-1lg5qud changes per build, so we use partial selectors.
+        The play button contains an SVG with aria-label="Icon-play".
         """
-        # Strategy 1: Exact selector from .ts (may fail if dynamic class changed)
+        # Strategy 1: SVG aria-label (most reliable)
         try:
-            btn = self.page.locator('.MuiButtonBase-root.MuiIconButton-root.MuiIconButton-sizeMedium.mui-1lg5qud')
+            btn = self.page.locator('button:has(svg[aria-label="Icon-play"])')
             if await btn.count() > 0:
                 await btn.first.click()
-                logger.info("Clicked play button via exact .ts selector")
+                logger.info("Clicked play button via svg[aria-label=Icon-play]")
                 return True
         except Exception as e:
-            logger.debug(f"Exact .ts selector failed: {e}")
+            logger.debug(f"SVG Icon-play selector failed: {e}")
 
-        # Strategy 2: Partial MUI selector (without dynamic class)
+        # Strategy 2: Find the control stack (MuiStack with 2+ icon buttons)
         try:
-            btn = self.page.locator('.MuiButtonBase-root.MuiIconButton-root.MuiIconButton-sizeMedium')
-            count = await btn.count()
-            logger.info(f"Found {count} MuiIconButton-sizeMedium elements")
-            if count > 0:
-                # Click the last one (rightmost in header)
-                await btn.last.click()
-                logger.info("Clicked play button via partial MUI selector (last)")
-                return True
+            stacks = self.page.locator('[class*="MuiStack-root"]')
+            count = await stacks.count()
+            for i in range(count):
+                stack = stacks.nth(i)
+                buttons = stack.locator('button.MuiButtonBase-root.MuiIconButton-root')
+                btn_count = await buttons.count()
+                if btn_count >= 2:
+                    box = await stack.bounding_box()
+                    if box and box['x'] > 400 and box['y'] < 120:
+                        await buttons.first.click()
+                        logger.info(f"Clicked play button (1st in control stack at x={box['x']}, y={box['y']})")
+                        return True
         except Exception as e:
-            logger.debug(f"Partial MUI selector failed: {e}")
+            logger.debug(f"MuiStack control strategy failed: {e}")
 
-        # Strategy 3: Alternative selector from holded-fichar-ahora1.ts
-        try:
-            btn = self.page.locator('.MuiButtonBase-root.MuiIconButton-root.MuiIconButton-sizeLarge')
-            if await btn.count() > 0:
-                await btn.first.click()
-                logger.info("Clicked play button via sizeLarge selector")
-                return True
-        except Exception as e:
-            logger.debug(f"sizeLarge selector failed: {e}")
-
-        # Strategy 4: aria-label based
+        # Strategy 3: aria-label based
         for name in ["Iniciar", "Start", "Play", "Iniciar fichaje"]:
             try:
                 btn = self.page.get_by_role("button", name=name)
@@ -871,11 +930,14 @@ class HoldedFichador:
 
             await self._async_debug_screenshot("Navegador abierto", "start")
 
-            # Navigate to myzone
-            await self.page.goto("https://app.holded.com/myzone", wait_until='domcontentloaded', timeout=60000)
+            # Navigate to time-tracking (where the controls live)
+            await self.page.goto("https://app.holded.com/myzone/time-tracking", wait_until='domcontentloaded', timeout=60000)
             await asyncio.sleep(8)
 
-            await self._async_debug_screenshot("En myzone", "navigate")
+            await self._async_debug_screenshot("En time-tracking", "navigate")
+
+            await self._close_intercom_panel()
+            await self._async_debug_screenshot("Intercom cerrado", "close_intercom")
 
             clicked = await self._click_pause_button()
 
@@ -971,86 +1033,47 @@ class HoldedFichador:
     async def _click_pause_button(self) -> bool:
         """Click the pause button in the live tracking widget.
 
-        From recorded .ts script (holded-fichar-pausa.ts line 4):
-          page.locator('.MuiStack-root.mui-ct9q29 > button:nth-child(2)').click()
-        The pause button is the 2nd button in a MuiStack container.
-        The dynamic class mui-ct9q29 changes per build.
+        The pause button contains an SVG with aria-label="Icon-pause".
         """
-        # Take debug screenshot before clicking
-        await self.page.screenshot(path="data/before_click_pause.png")
-
-        # Strategy 1: Exact selector from .ts (may fail if dynamic class changed)
+        # Strategy 1: SVG aria-label (most reliable)
         try:
-            btn = self.page.locator('.MuiStack-root.mui-ct9q29 > button:nth-child(2)')
+            btn = self.page.locator('button:has(svg[aria-label="Icon-pause"])')
             if await btn.count() > 0:
-                await btn.click()
-                logger.info("Clicked pause button via exact .ts selector")
-                await self.page.screenshot(path="data/after_click_pause.png")
+                await btn.first.click()
+                logger.info("Clicked pause button via svg[aria-label=Icon-pause]")
                 return True
         except Exception as e:
-            logger.debug(f"Exact .ts selector failed: {e}")
+            logger.debug(f"SVG Icon-pause selector failed: {e}")
 
-        # Strategy 2: Partial MuiStack selector - find stack with 2+ buttons near timer
+        # Strategy 2: Find control stack (MuiStack with 2+ icon buttons in header)
         try:
-            # Find all MuiStack elements
             stacks = self.page.locator('[class*="MuiStack-root"]')
             count = await stacks.count()
-            logger.info(f"Found {count} MuiStack elements")
             for i in range(count):
                 stack = stacks.nth(i)
-                buttons = stack.locator('button')
+                buttons = stack.locator('button.MuiButtonBase-root.MuiIconButton-root')
                 btn_count = await buttons.count()
                 if btn_count >= 2:
-                    # Check if this stack is in the header area (near timer)
                     box = await stack.bounding_box()
-                    if box and box['x'] > 600 and box['y'] < 100:
-                        # Click the 2nd button (pause)
+                    if box and box['x'] > 400 and box['y'] < 120:
                         await buttons.nth(1).click()
-                        logger.info(f"Clicked pause button in MuiStack at x={box['x']}, y={box['y']}")
-                        await self.page.screenshot(path="data/after_click_pause.png")
+                        logger.info(f"Clicked pause button (2nd in control stack at x={box['x']}, y={box['y']})")
                         return True
         except Exception as e:
-            logger.debug(f"MuiStack strategy failed: {e}")
+            logger.debug(f"MuiStack control strategy failed: {e}")
 
-        # Strategy 3: Find all MuiIconButton and click the one that's 2nd from right in header
-        try:
-            btns = self.page.locator('.MuiButtonBase-root.MuiIconButton-root')
-            count = await btns.count()
-            logger.info(f"Found {count} MuiIconButton elements")
-            # Collect header buttons (y < 100)
-            header_btns = []
-            for i in range(count):
-                btn = btns.nth(i)
-                box = await btn.bounding_box()
-                if box and box['y'] < 100 and box['x'] > 600:
-                    header_btns.append((i, box['x']))
-            # Sort by x position
-            header_btns.sort(key=lambda x: x[1], reverse=True)
-            logger.info(f"Header buttons: {header_btns}")
-            if len(header_btns) >= 2:
-                # Click the 2nd from right (pause)
-                idx = header_btns[1][0]
-                await btns.nth(idx).click()
-                logger.info(f"Clicked pause button (2nd from right) at index {idx}")
-                await self.page.screenshot(path="data/after_click_pause.png")
-                return True
-        except Exception as e:
-            logger.debug(f"Header buttons strategy failed: {e}")
-
-        # Strategy 4: aria-label based
+        # Strategy 3: aria-label based
         for name in ["Pausa", "Pause", "Pausar"]:
             try:
                 btn = self.page.get_by_role("button", name=name)
                 if await btn.count() > 0:
                     await btn.click()
                     logger.info(f"Clicked pause button via aria-label: {name}")
-                    await self.page.screenshot(path="data/after_click_pause.png")
                     return True
             except:
                 pass
 
         logger.error("All pause button strategies failed")
-        await self.page.screenshot(path="data/after_click_pause.png")
         return False
 
     async def stop_live_tracking(self) -> dict:
@@ -1067,15 +1090,18 @@ class HoldedFichador:
 
             await self._async_debug_screenshot("Navegador abierto", "start")
 
-            # Navigate to myzone (same as recorded .ts scripts)
+            # Navigate to time-tracking (where the controls live)
             await self.page.goto(
-                "https://app.holded.com/myzone",
+                "https://app.holded.com/myzone/time-tracking",
                 wait_until='domcontentloaded',
                 timeout=60000
             )
             await asyncio.sleep(8)
 
-            await self._async_debug_screenshot("En myzone", "navigate")
+            await self._async_debug_screenshot("En time-tracking", "navigate")
+
+            await self._close_intercom_panel()
+            await self._async_debug_screenshot("Intercom cerrado", "close_intercom")
 
             await self._async_debug_screenshot("Antes de Stop", "before_stop")
             clicked = await self._click_stop_button()
@@ -1109,40 +1135,37 @@ class HoldedFichador:
     async def _click_stop_button(self) -> bool:
         """Click the stop button in the live tracking widget.
 
-        From recorded .ts script (holded-fichar-finalizar.ts line 4):
-          page.locator('.MuiButtonBase-root.MuiIconButton-root.MuiIconButton-sizeMedium.mui-1lg5qud').first.click()
-        The stop button uses the SAME selector as play (it's a toggle).
-        After clicking, a confirmation dialog "Sí, he terminado" appears.
+        The stop button contains an SVG with aria-label="Icon-stop".
+        Selector: button:has(svg[aria-label="Icon-stop"])
         """
-        # Strategy 1: Exact selector from .ts
+        # Strategy 1: SVG aria-label (most reliable)
         try:
-            btn = self.page.locator('.MuiButtonBase-root.MuiIconButton-root.MuiIconButton-sizeMedium.mui-1lg5qud')
+            btn = self.page.locator('button:has(svg[aria-label="Icon-stop"])')
             if await btn.count() > 0:
                 await btn.first.click()
-                logger.info("Clicked stop button via exact .ts selector")
+                logger.info("Clicked stop button via svg[aria-label=Icon-stop]")
                 return True
         except Exception as e:
-            logger.debug(f"Exact .ts selector failed: {e}")
+            logger.debug(f"SVG Icon-stop selector failed: {e}")
 
-        # Strategy 2: Partial MUI selector
+        # Strategy 2: Find the control stack (MuiStack with 2+ icon buttons)
         try:
-            btn = self.page.locator('.MuiButtonBase-root.MuiIconButton-root.MuiIconButton-sizeMedium')
-            if await btn.count() > 0:
-                await btn.first.click()
-                logger.info("Clicked stop button via partial MUI selector")
-                return True
+            stacks = self.page.locator('[class*="MuiStack-root"]')
+            count = await stacks.count()
+            for i in range(count):
+                stack = stacks.nth(i)
+                buttons = stack.locator('button.MuiButtonBase-root.MuiIconButton-root')
+                btn_count = await buttons.count()
+                if btn_count >= 2:
+                    box = await stack.bounding_box()
+                    if box and box['x'] > 400 and box['y'] < 120:
+                        await buttons.first.click()
+                        logger.info(f"Clicked stop button (1st in control stack at x={box['x']}, y={box['y']})")
+                        return True
         except Exception as e:
-            logger.debug(f"Partial MUI selector failed: {e}")
+            logger.debug(f"MuiStack control strategy failed: {e}")
 
-        # Strategy 3: Use _click_play_button (same toggle)
-        try:
-            if await self._click_play_button():
-                logger.info("Clicked stop button via play toggle")
-                return True
-        except Exception as e:
-            logger.debug(f"Stop via play toggle failed: {e}")
-
-        # Strategy 4: aria-label based
+        # Strategy 3: aria-label based
         for name in ["Detener", "Stop", "Parar", "Finalizar", "Terminar"]:
             try:
                 btn = self.page.get_by_role("button", name=name)
