@@ -3,18 +3,20 @@
 <img width="1920" height="1239" alt="image" src="https://github.com/user-attachments/assets/4fd7d792-7c8c-4218-9c19-50677bb39a38" />
 Sistema automatizado de fichaje para [Holded ERP](https://www.holded.com/) usando Playwright. Dashboard web para configuración, monitorización y control manual. Bot de Telegram para control remoto.
 
-**Interfaz en español** | **Timezone: Europe/Madrid**
+**Interfaz en español** | **Timezone: Europe/Madrid** | **v1.4.2**
 
 ## Características
 
 - **Fichaje automático** por horarios configurables (cron scheduler)
 - **Fichaje manual** con formulario integrado en Holded
+- **Corregir fichaje** — editar el fichaje del día con el horario activo desde un solo clic
 - **Control en tiempo real**: iniciar, pausar y finalizar fichaje desde la web
 - **Bot de Telegram**: control remoto con comandos + envío de screenshots automáticas
 - **2FA interactivo**: soporte para autenticación de dos factores
 - **Debug mode**: capturas de pantalla en cada paso de Playwright, accesibles desde `/debug`
-- **Historial de fichajes**: registro local con upsert por fecha
+- **Historial de fichajes**: registro local con upsert por fecha, eliminar registros
 - **Notificaciones** por email y webhook
+- **Responsive**: diseño adaptable a móvil y escritorio
 - **Docker ready**: despliegue con un solo comando
 
 ## Tech Stack
@@ -135,6 +137,7 @@ Los horarios se configuran desde la web (`/schedules`). Cada horario define:
 | GET | `/api/attendance` | Listar fichajes |
 | GET | `/api/attendance/today` | Estado de hoy |
 | POST | `/api/attendance/manual-fichaje` | Fichaje manual |
+| POST | `/api/attendance/corregir-fichaje` | Corregir fichaje de hoy con horario activo |
 | POST | `/api/attendance/modify-fichaje` | Modificar fichaje |
 | POST | `/api/scheduler/force` | Forzar acción |
 | GET | `/api/scheduler/status` | Estado del scheduler |

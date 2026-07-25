@@ -28,6 +28,7 @@ body {
     background-color: var(--background-color);
     color: var(--text-primary);
     line-height: 1.6;
+    overflow-x: hidden;
 }
 
 /* Navbar */
@@ -91,6 +92,7 @@ body {
     border-radius: var(--radius);
     box-shadow: var(--shadow);
     padding: 1.5rem;
+    overflow: hidden;
 }
 
 .card h2 {
@@ -340,6 +342,7 @@ body {
 
     .container {
         padding: 1rem;
+        overflow: hidden;
     }
 
     .dashboard-grid {
@@ -350,8 +353,33 @@ body {
         grid-column: span 1;
     }
 
+    .card {
+        padding: 1rem;
+        overflow: hidden;
+    }
+
+    .card .btn {
+        width: 100%;
+        text-align: center;
+    }
+
     .scheduler-controls {
         flex-direction: column;
+    }
+
+    .scheduler-controls .btn {
+        width: 100%;
+    }
+
+    .status-item {
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .notification {
+        right: 10px;
+        left: 10px;
+        max-width: none;
     }
 }
 
