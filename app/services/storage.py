@@ -117,17 +117,38 @@ def get_attendance(start_date: Optional[str] = None, end_date: Optional[str] = N
 
 
 def save_attendance(log: Dict[str, Any]) -> Dict[str, Any]:
-    """Save an attendance log."""
+    """Save an attendance log. Upserts by date (one record per day)."""
     data = _load_json(ATTENDANCE_FILE)
     logs = data.get("logs", [])
-    
-    log["id"] = str(uuid4())
-    log["created_at"] = datetime.now().isoformat()
-    logs.append(log)
-    
+
+    target_date = str(log.get("date", ""))
+
+    # Find existing record for this date
+    existing_idx = None
+    for i, l in enumerate(logs):
+        if str(l.get("date", "")) == target_date:
+            existing_idx = i
+            break
+
+    if existing_idx is not None:
+        # Update existing record, merging fields
+        existing = logs[existing_idx]
+        for key, value in log.items():
+            if value is not None and key != "id":
+                existing[key] = value
+        existing["updated_at"] = datetime.now().isoformat()
+        logs[existing_idx] = existing
+        result = existing
+    else:
+        # Create new record
+        log["id"] = str(uuid4())
+        log["created_at"] = datetime.now().isoformat()
+        logs.append(log)
+        result = log
+
     data["logs"] = logs
     _save_json(ATTENDANCE_FILE, data)
-    return log
+    return result
 
 
 # === Calendar ===

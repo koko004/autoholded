@@ -243,6 +243,36 @@ class FichadorScheduler:
                 if result.get("status") == "success":
                     self.last_fichaje = datetime.now()
                     logger.info(f"Live tracking {action} completed successfully")
+
+                    # Save attendance record
+                    try:
+                        from app.services.storage import save_attendance, get_schedule
+                        from datetime import date as date_cls
+                        today = date_cls.today().isoformat()
+                        now = datetime.now()
+
+                        if action == 'start':
+                            save_attendance({
+                                "date": today,
+                                "entry_time": now.isoformat(),
+                                "status": "in_progress",
+                                "source": "scheduler"
+                            })
+                        elif action == 'stop':
+                            save_attendance({
+                                "date": today,
+                                "exit_time": now.isoformat(),
+                                "status": "completed",
+                                "source": "scheduler"
+                            })
+                        elif action == 'pause':
+                            save_attendance({
+                                "date": today,
+                                "status": "paused",
+                                "source": "scheduler"
+                            })
+                    except Exception as e:
+                        logger.error(f"Failed to save attendance: {e}")
                 elif result.get("status") == "session_expired":
                     logger.warning("Session expired during fichaje - may need re-login")
                 else:

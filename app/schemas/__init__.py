@@ -134,6 +134,11 @@ class AttendanceLogBase(BaseModel):
     entry_time: Optional[datetime] = None
     exit_time: Optional[datetime] = None
     pause_minutes: int = 0
+    total_hours: float = 0.0
+    status: Optional[str] = None
+    source: Optional[str] = None
+    location: Optional[str] = None
+    work_blocks: Optional[List[Dict[str, Any]]] = None
     notes: Optional[str] = None
 
 
@@ -204,7 +209,7 @@ class SchedulerStatus(BaseModel):
 
 
 class ForceFichajeRequest(BaseModel):
-    fichaje_type: str = Field(..., pattern="^(entry|exit|pause_start|pause_end)$")
+    fichaje_type: str = Field(..., pattern="^(entry|exit|pause_start|pause_end|manual)$")
     schedule_id: Optional[str] = None
 
 

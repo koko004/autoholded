@@ -111,12 +111,30 @@ async def get_session_info():
 
         user_email = data.get("user_email", "")
         if not user_email:
+            # Fallback: try to find email from config
+            try:
+                config = get_config()
+                user_email = config.get("holded_email", "")
+            except:
+                pass
+        if not user_email:
+            # Fallback: try to find email from .env settings
+            user_email = settings.HOLDED_EMAIL or ""
+        if not user_email:
+            # Fallback: try to find email in cookies
             origins = data.get("origins", [])
             for o in origins:
                 for cookie in o.get("cookies", []):
                     if "holded" in cookie.get("name", "").lower() and "email" in cookie.get("value", "").lower():
                         user_email = cookie.get("value", "")
                         break
+        # If we found email via fallback, save it back to session file for next time
+        if user_email and not data.get("user_email"):
+            try:
+                data["user_email"] = user_email
+                session_file.write_text(json.dumps(data, indent=2))
+            except:
+                pass
 
         return {
             "active": ttl_seconds > 0,
@@ -373,20 +391,20 @@ async def get_today_status():
     entry_time = None
     exit_time = None
     total_hours = 0.0
+    pause_minutes = 0
 
     if today_logs:
-        has_entry = True
-        last_log = today_logs[-1]
-        blocks = last_log.get("work_blocks", [])
-        if blocks:
-            entry_time = blocks[0].get("entry")
-            exit_time = blocks[-1].get("exit")
-            if exit_time and exit_time != "00:00":
-                has_exit = True
-                current_status = "completed"
-            else:
-                current_status = "in_progress"
-        total_hours = last_log.get("total_hours", 0)
+        log = today_logs[-1]
+        entry_time = log.get("entry_time")
+        exit_time = log.get("exit_time")
+        pause_minutes = log.get("pause_minutes", 0)
+        total_hours = log.get("total_hours", 0)
+        current_status = log.get("status", "not_started")
+
+        if entry_time:
+            has_entry = True
+        if exit_time:
+            has_exit = True
 
     return TodayStatus(
         is_workday=True,
@@ -395,7 +413,7 @@ async def get_today_status():
         current_status=current_status,
         entry_time=entry_time,
         exit_time=exit_time,
-        pause_minutes=0,
+        pause_minutes=pause_minutes,
         total_hours=total_hours
     )
 
@@ -479,18 +497,46 @@ async def force_fichaje(request: ForceFichajeRequest):
         return MessageResponse(message="El horario activo no tiene bloques de trabajo", success=False)
 
     fichaje_type = request.fichaje_type
+    now = datetime.now()
+    today_str = date.today().isoformat()
 
     if fichaje_type == "entry":
         result = await fichador.start_live_tracking()
+        if result.get("status") == "success":
+            save_attendance({
+                "date": today_str,
+                "entry_time": now.isoformat(),
+                "status": "in_progress",
+                "source": "manual"
+            })
         return result
     elif fichaje_type == "pause_start":
         result = await fichador.pause_live_tracking()
+        if result.get("status") == "success":
+            save_attendance({
+                "date": today_str,
+                "status": "paused",
+                "source": "manual"
+            })
         return result
     elif fichaje_type == "pause_end":
         result = await fichador.start_live_tracking()
+        if result.get("status") == "success":
+            save_attendance({
+                "date": today_str,
+                "status": "in_progress",
+                "source": "manual"
+            })
         return result
     elif fichaje_type == "exit":
         result = await fichador.stop_live_tracking()
+        if result.get("status") == "success":
+            save_attendance({
+                "date": today_str,
+                "exit_time": now.isoformat(),
+                "status": "completed",
+                "source": "manual"
+            })
         return result
     elif fichaje_type == "manual":
         location = active_schedule.get("location") or "ARCO C.B."
@@ -542,22 +588,41 @@ async def manual_fichaje(request: ManualFichajeRequest):
     )
 
     if result.get("status") == "success":
-        total_hours = 0
+        # Calculate hours from work blocks
+        total_minutes = 0
+        pause_minutes = 0
+        first_entry = None
+        last_exit = None
+
         for block in work_blocks:
             try:
                 entry_parts = block.get("entry", "0:0").split(":")
                 exit_parts = block.get("exit", "0:0").split(":")
                 entry_mins = int(entry_parts[0]) * 60 + int(entry_parts[1])
                 exit_mins = int(exit_parts[0]) * 60 + int(exit_parts[1])
-                total_hours += (exit_mins - entry_mins) / 60
+                block_minutes = exit_mins - entry_mins
+                block_type = block.get("type", "Trabajado")
+
+                if block_type == "Pausa":
+                    pause_minutes += block_minutes
+                else:
+                    total_minutes += block_minutes
+
+                if first_entry is None or block.get("entry", "") < first_entry:
+                    first_entry = block.get("entry", "")
+                if last_exit is None or block.get("exit", "") > last_exit:
+                    last_exit = block.get("exit", "")
             except:
                 pass
 
         save_attendance({
             "date": target.isoformat(),
             "location": fichaje_location,
+            "entry_time": f"{target.isoformat()}T{first_entry}:00" if first_entry else None,
+            "exit_time": f"{target.isoformat()}T{last_exit}:00" if last_exit else None,
+            "pause_minutes": pause_minutes,
+            "total_hours": round(total_minutes / 60, 2),
             "work_blocks": work_blocks,
-            "total_hours": round(total_hours, 2),
             "status": "completed",
             "source": "manual"
         })
