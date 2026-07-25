@@ -205,7 +205,7 @@ async function loadSteps() {
         const container = document.getElementById('timeline');
         container.innerHTML = '';
         
-        steps.forEach((step, index) => {
+        steps.reverse().forEach((step, index) => {
             const div = document.createElement('div');
             div.className = 'timeline-step';
             

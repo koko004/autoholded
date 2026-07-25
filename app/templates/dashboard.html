@@ -473,6 +473,19 @@ async function toggleHeadless() {
         grid-template-columns: 1fr;
     }
 }
+
+@media (max-width: 480px) {
+    .fichaje-actions {
+        gap: 0.5rem;
+    }
+    .fichaje-btn {
+        padding: 0.6rem 0.75rem;
+        font-size: 0.85rem;
+    }
+    .manual-fichaje-form {
+        flex-direction: column;
+    }
+}
 </style>
 
 {% endblock %}

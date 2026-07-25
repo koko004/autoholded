@@ -687,7 +687,14 @@ class HoldedFichador:
     async def _detect_holded_error(self) -> Optional[str]:
         """Detect Holded error messages (toast/snackbar notifications).
         Returns the error text if found, None otherwise.
+        Ignores success/confirmation toasts (e.g. "Guardado", "Correcto").
         """
+        success_patterns = [
+            'guardado', 'correcto', 'éxito', 'exito', 'completado',
+            'registrado', 'actualizado', 'eliminado', 'enviado',
+            'saved', 'done', 'success', 'ok',
+        ]
+
         try:
             # Holded uses MUI Snackbar for notifications
             # Check for snackbar/alert elements with error content
@@ -706,7 +713,11 @@ class HoldedFichador:
                     for element in elements:
                         text = await element.inner_text()
                         if text and len(text.strip()) > 2:
-                            logger.warning(f"Holded notification ({sel}): {text.strip()[:200]}")
+                            text_lower = text.strip().lower()
+                            if any(p in text_lower for p in success_patterns):
+                                logger.info(f"Holded success toast (ignored): {text.strip()[:200]}")
+                                continue
+                            logger.warning(f"Holded error notification ({sel}): {text.strip()[:200]}")
                             return text.strip()
                 except:
                     pass

@@ -164,7 +164,7 @@ class TelegramBotService:
                 self._conversation_state[update.effective_user.id] = "waiting_fichar_date"
                 await update.message.reply_text(
                     "📅 *Fichaje Manual*\n\n"
-                    "Introduce la fecha (formato: YYYY-MM-DD, ej: 2026-07-25)\n"
+                    "Introduce la fecha (formato: DD/MM/YYYY, ej: 25/07/2026)\n"
                     "O envia /cancel para cancelar.",
                     parse_mode="Markdown"
                 )
@@ -237,9 +237,17 @@ class TelegramBotService:
 
                     try:
                         from datetime import date as date_cls
-                        target_date = date_cls.fromisoformat(text)
+                        # Accept DD/MM/YYYY or YYYY-MM-DD
+                        if "/" in text:
+                            parts = text.split("/")
+                            if len(parts) == 3:
+                                target_date = date_cls(int(parts[2]), int(parts[1]), int(parts[0]))
+                            else:
+                                raise ValueError("Invalid format")
+                        else:
+                            target_date = date_cls.fromisoformat(text)
                     except ValueError:
-                        await update.message.reply_text("❌ Formato de fecha inválido. Usa YYYY-MM-DD (ej: 2026-07-25)")
+                        await update.message.reply_text("❌ Formato de fecha inválido. Usa DD/MM/YYYY (ej: 25/07/2026)")
                         return
 
                     await update.message.reply_text(f"📅 Fichaje manual para {text}...")
