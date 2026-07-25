@@ -244,6 +244,20 @@ class FichadorScheduler:
                     self.last_fichaje = datetime.now()
                     logger.info(f"Live tracking {action} completed successfully")
 
+                    # Send Telegram screenshots
+                    try:
+                        from app.services.telegram_bot import telegram_bot
+                        if telegram_bot.is_running:
+                            action_names = {"start": "Fichaje iniciado", "pause": "Fichaje pausado", "stop": "Fichaje finalizado"}
+                            steps = fichador.get_debug_steps()
+                            loop.run_until_complete(
+                                telegram_bot.send_screenshots_from_steps(
+                                    steps, action_names.get(action, action), "success"
+                                )
+                            )
+                    except Exception as e:
+                        logger.error(f"Failed to send Telegram notification: {e}")
+
                     # Save attendance record
                     try:
                         from app.services.storage import save_attendance, get_schedule
@@ -275,8 +289,31 @@ class FichadorScheduler:
                         logger.error(f"Failed to save attendance: {e}")
                 elif result.get("status") == "session_expired":
                     logger.warning("Session expired during fichaje - may need re-login")
+                    try:
+                        from app.services.telegram_bot import telegram_bot
+                        if telegram_bot.is_running:
+                            action_names = {"start": "Fichaje", "pause": "Pausa", "stop": "Finalizar"}
+                            loop.run_until_complete(
+                                telegram_bot.send_notification(
+                                    f"⚠️ *Sesión expirada*\n\n"
+                                    f"{action_names.get(action, action)} no completado. "
+                                    f"Se necesita re-login en Holded."
+                                )
+                            )
+                    except:
+                        pass
                 else:
                     logger.error(f"Live tracking {action} failed: {result.get('message')}")
+                    try:
+                        from app.services.telegram_bot import telegram_bot
+                        if telegram_bot.is_running:
+                            loop.run_until_complete(
+                                telegram_bot.send_notification(
+                                    f"❌ *Error en {action}*\n\n{result.get('message', 'Error desconocido')}"
+                                )
+                            )
+                    except:
+                        pass
             finally:
                 loop.close()
 

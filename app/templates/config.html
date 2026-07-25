@@ -110,6 +110,47 @@
                 <button type="submit" class="btn btn-primary">Guardar</button>
             </form>
         </div>
+
+        <!-- Telegram Bot -->
+        <div class="card">
+            <h2>Bot de Telegram</h2>
+            <div class="telegram-status" id="telegram-status">
+                <span class="status-dot" id="tg-status-dot"></span>
+                <span class="status-text" id="tg-status-text">Verificando...</span>
+            </div>
+
+            <form id="telegram-form">
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="tg_enabled" name="telegram_enabled">
+                        Activar bot de Telegram
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label for="tg_token">Token del Bot</label>
+                    <input type="text" id="tg_token" class="form-control" placeholder="123456:ABC-DEF...">
+                    <small class="form-help">Obtener de <a href="https://t.me/BotFather" target="_blank">@BotFather</a></small>
+                </div>
+                <div class="form-group">
+                    <label for="tg_chat_id">Chat ID</label>
+                    <input type="text" id="tg_chat_id" class="form-control" placeholder="-1001234567890">
+                    <small class="form-help">Enviar /start a <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a></small>
+                </div>
+                <div class="form-group">
+                    <label for="tg_screenshot_mode">Modo de Screenshots</label>
+                    <select id="tg_screenshot_mode" class="form-control">
+                        <option value="all">Todas las capturas</option>
+                        <option value="last" selected>Solo la última captura</option>
+                        <option value="summary">Última + resumen</option>
+                    </select>
+                </div>
+                <div class="telegram-actions">
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                    <button type="button" class="btn btn-secondary" id="btn-test-tg">Probar conexión</button>
+                </div>
+            </form>
+            <div id="tg-test-result" style="display: none; margin-top: 0.5rem;"></div>
+        </div>
     </div>
 </div>
 
@@ -122,8 +163,11 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('login-form').addEventListener('submit', handleLogin);
     document.getElementById('twofa-form').addEventListener('submit', handle2FA);
     document.getElementById('notification-form').addEventListener('submit', saveNotifications);
+    document.getElementById('telegram-form').addEventListener('submit', saveTelegram);
+    document.getElementById('btn-test-tg').addEventListener('click', testTelegram);
     document.getElementById('btn-logout').addEventListener('click', handleLogout);
     document.getElementById('btn-check-session').addEventListener('click', handleCheckSession);
+    loadTelegramConfig();
 });
 
 async function checkSession() {
@@ -421,6 +465,95 @@ async function saveNotifications(e) {
         showNotification('Error al guardar', 'error');
     }
 }
+
+// === Telegram Bot Functions ===
+
+async function loadTelegramConfig() {
+    try {
+        const res = await fetch('/api/telegram/config');
+        const cfg = await res.json();
+        
+        document.getElementById('tg_token').value = cfg.token_masked || '';
+        document.getElementById('tg_chat_id').value = cfg.chat_id || '';
+        document.getElementById('tg_enabled').checked = cfg.enabled || false;
+        document.getElementById('tg_screenshot_mode').value = cfg.screenshot_mode || 'last';
+        
+        updateTelegramStatus(cfg.enabled && cfg.token_masked);
+    } catch (e) {
+        updateTelegramStatus(false);
+    }
+}
+
+function updateTelegramStatus(isActive) {
+    const dot = document.getElementById('tg-status-dot');
+    const text = document.getElementById('tg-status-text');
+    if (isActive) {
+        dot.classList.add('valid');
+        text.textContent = 'Bot activo';
+    } else {
+        dot.classList.remove('valid');
+        text.textContent = 'No configurado';
+    }
+}
+
+async function saveTelegram(e) {
+    e.preventDefault();
+    const token = document.getElementById('tg_token').value.trim();
+    const chatId = document.getElementById('tg_chat_id').value.trim();
+    const enabled = document.getElementById('tg_enabled').checked;
+    const mode = document.getElementById('tg_screenshot_mode').value;
+
+    const body = {};
+    if (token && !token.includes('...')) body.token = token;
+    body.chat_id = chatId;
+    body.enabled = enabled;
+    body.screenshot_mode = mode;
+
+    try {
+        const res = await fetch('/api/telegram/config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const result = await res.json();
+        
+        if (result.status === 'success') {
+            showNotification(result.message, 'success');
+            loadTelegramConfig();
+        } else {
+            showNotification(result.message || 'Error al guardar', 'error');
+        }
+    } catch (error) {
+        showNotification('Error al guardar', 'error');
+    }
+}
+
+async function testTelegram() {
+    const btn = document.getElementById('btn-test-tg');
+    const result = document.getElementById('tg-test-result');
+    btn.disabled = true;
+    btn.textContent = 'Enviando...';
+    result.style.display = 'none';
+    
+    try {
+        const res = await fetch('/api/telegram/test', { method: 'POST' });
+        const data = await res.json();
+        result.style.display = 'block';
+        if (data.status === 'success') {
+            result.className = 'alert alert-success';
+            result.innerHTML = '✓ ' + data.message;
+        } else {
+            result.className = 'alert alert-danger';
+            result.innerHTML = '✗ ' + data.message;
+        }
+    } catch (e) {
+        result.style.display = 'block';
+        result.className = 'alert alert-danger';
+        result.innerHTML = '✗ Error de conexión';
+    }
+    btn.disabled = false;
+    btn.textContent = 'Probar conexión';
+}
 </script>
 
 <style>
@@ -568,6 +701,49 @@ async function saveNotifications(e) {
     padding: 0.75rem;
     font-size: 1rem;
     border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.form-help {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary, #6b7280);
+}
+
+.form-help a {
+    color: var(--primary-color, #3b82f6);
+}
+
+.telegram-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem;
+    background: var(--background-color);
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+}
+
+.telegram-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+select.form-control {
+    width: 100%;
+    padding: 0.75rem;
+    font-size: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: white;
+}
+
+.alert-success {
+    background: #d1fae5;
+    border: 1px solid #10b981;
+    color: #065f46;
+    padding: 0.75rem 1rem;
     border-radius: 8px;
 }
 </style>

@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     BROWSER_TIMEOUT: int = 60000  # 60 seconds
     CHROMIUM_URL: Optional[str] = None
     
+    # Telegram Bot
+    TELEGRAM_BOT_TOKEN: Optional[str] = None
+    TELEGRAM_CHAT_ID: Optional[str] = None
+    TELEGRAM_ENABLED: bool = False
+    TELEGRAM_SCREENSHOT_MODE: str = "last"  # "all", "last", "summary"
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

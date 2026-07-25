@@ -26,6 +26,20 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+async def _notify_telegram(action_name: str, result: dict):
+    """Send Telegram screenshots after an action."""
+    try:
+        from app.services.telegram_bot import telegram_bot
+        if telegram_bot.is_running:
+            steps = fichador.get_debug_steps()
+            await telegram_bot.send_screenshots_from_steps(
+                steps, action_name,
+                result.get("status", "error")
+            )
+    except Exception as e:
+        logger.error(f"Telegram notification failed: {e}")
+
+
 # === 2FA Authentication ===
 class LoginRequest(BaseModel):
     email: str
@@ -499,6 +513,13 @@ async def force_fichaje(request: ForceFichajeRequest):
     fichaje_type = request.fichaje_type
     now = datetime.now()
     today_str = date.today().isoformat()
+    action_names = {
+        "entry": "Fichaje iniciado",
+        "pause_start": "Fichaje pausado",
+        "pause_end": "Fichaje reanudado",
+        "exit": "Fichaje finalizado",
+        "manual": "Fichaje manual"
+    }
 
     if fichaje_type == "entry":
         result = await fichador.start_live_tracking()
@@ -509,6 +530,7 @@ async def force_fichaje(request: ForceFichajeRequest):
                 "status": "in_progress",
                 "source": "manual"
             })
+        await _notify_telegram(action_names.get(fichaje_type, fichaje_type), result)
         return result
     elif fichaje_type == "pause_start":
         result = await fichador.pause_live_tracking()
@@ -518,6 +540,7 @@ async def force_fichaje(request: ForceFichajeRequest):
                 "status": "paused",
                 "source": "manual"
             })
+        await _notify_telegram(action_names.get(fichaje_type, fichaje_type), result)
         return result
     elif fichaje_type == "pause_end":
         result = await fichador.start_live_tracking()
@@ -527,6 +550,7 @@ async def force_fichaje(request: ForceFichajeRequest):
                 "status": "in_progress",
                 "source": "manual"
             })
+        await _notify_telegram(action_names.get(fichaje_type, fichaje_type), result)
         return result
     elif fichaje_type == "exit":
         result = await fichador.stop_live_tracking()
@@ -537,10 +561,12 @@ async def force_fichaje(request: ForceFichajeRequest):
                 "status": "completed",
                 "source": "manual"
             })
+        await _notify_telegram(action_names.get(fichaje_type, fichaje_type), result)
         return result
     elif fichaje_type == "manual":
         location = active_schedule.get("location") or "ARCO C.B."
         result = await fichador.fichar_manual(work_blocks=work_blocks, location=location)
+        await _notify_telegram(action_names.get(fichaje_type, fichaje_type), result)
         return result
     else:
         logger.error(f"Unknown fichaje_type: {fichaje_type}")
@@ -627,6 +653,7 @@ async def manual_fichaje(request: ManualFichajeRequest):
             "source": "manual"
         })
 
+    await _notify_telegram(f"Fichaje manual {target.isoformat()}", result)
     return result
 
 
@@ -771,3 +798,85 @@ async def get_debug_screenshot(filename: str):
     if not filepath.exists():
         raise HTTPException(status_code=404, detail="Screenshot not found")
     return FileResponse(str(filepath), media_type="image/png")
+
+
+# === Telegram Bot Endpoints ===
+class TelegramConfigUpdate(BaseModel):
+    token: Optional[str] = None
+    chat_id: Optional[str] = None
+    enabled: Optional[bool] = None
+    screenshot_mode: Optional[str] = None
+
+
+@router.get("/telegram/config")
+async def get_telegram_config():
+    """Get Telegram bot configuration (token is masked)."""
+    config = get_config()
+    token = config.get("telegram_token", "")
+    masked = ""
+    if token and len(token) > 10:
+        masked = token[:6] + "..." + token[-4:]
+
+    return {
+        "token_masked": masked,
+        "chat_id": config.get("telegram_chat_id", ""),
+        "enabled": config.get("telegram_enabled", False),
+        "screenshot_mode": config.get("telegram_screenshot_mode", "last")
+    }
+
+
+@router.put("/telegram/config")
+async def update_telegram_config(body: TelegramConfigUpdate):
+    """Update Telegram bot configuration and restart bot if needed."""
+    from app.services.telegram_bot import telegram_bot
+
+    config = get_config()
+
+    if body.token is not None:
+        config["telegram_token"] = body.token
+    if body.chat_id is not None:
+        config["telegram_chat_id"] = body.chat_id
+    if body.enabled is not None:
+        config["telegram_enabled"] = body.enabled
+    if body.screenshot_mode is not None:
+        config["telegram_screenshot_mode"] = body.screenshot_mode
+
+    save_config(config)
+
+    # Restart bot with new config
+    if telegram_bot.is_running:
+        await telegram_bot.stop()
+
+    tg_token = config.get("telegram_token", "")
+    tg_chat_id = config.get("telegram_chat_id", "")
+    tg_enabled = config.get("telegram_enabled", False)
+    tg_mode = config.get("telegram_screenshot_mode", "last")
+
+    if tg_enabled and tg_token and tg_chat_id:
+        telegram_bot.configure(tg_token, tg_chat_id, tg_mode)
+        await telegram_bot.start()
+        return {"status": "success", "message": "Bot de Telegram configurado e iniciado"}
+    else:
+        return {"status": "success", "message": "Configuración guardada (bot desactivado)"}
+
+
+@router.post("/telegram/test")
+async def test_telegram_connection():
+    """Send a test message to the configured Telegram chat."""
+    from app.services.telegram_bot import telegram_bot
+
+    if not telegram_bot.is_running:
+        return {"status": "error", "message": "El bot de Telegram no está activo"}
+
+    try:
+        await telegram_bot.send_notification("🧪 *Mensaje de prueba*\n\nEl bot de Telegram funciona correctamente.")
+        return {"status": "success", "message": "Mensaje de prueba enviado"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/telegram/status")
+async def get_telegram_status():
+    """Get Telegram bot runtime status."""
+    from app.services.telegram_bot import telegram_bot
+    return telegram_bot.get_status()
