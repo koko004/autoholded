@@ -1226,6 +1226,9 @@ class HoldedFichador:
 
             await self._async_debug_screenshot("En Control horario", "navigate")
 
+            await self._close_intercom_panel()
+            await self._async_debug_screenshot("Intercom cerrado", "close_intercom")
+
             # Click "Añadir fichaje": getByRole('button', { name: 'Añadir fichaje' })
             try:
                 add_btn = self.page.get_by_role("button", name="Añadir fichaje")
@@ -1595,29 +1598,48 @@ class HoldedFichador:
             return False
 
     async def _set_date_manual(self, target_date: date) -> bool:
-        """Set date using spinbuttons (Day, Month) from recorded script."""
+        """Set date range using spinbuttons, same approach as recorded script.
+        
+        From holded-fichaje-manual.ts:
+          getByRole('spinbutton', { name: 'Day' }).first().click()
+          getByRole('spinbutton', { name: 'Day' }).first().fill(day)
+          getByRole('spinbutton', { name: 'Month' }).first().fill(month)
+          For end date: click on current day text, then fill day and month.
+        """
         try:
-            day = target_date.day
-            month = target_date.month
-            year = target_date.year
+            day = str(target_date.day)
+            month = str(target_date.month)
 
-            # Set first Day spinbutton
-            day_spinbuttons = self.page.get_by_role("spinbutton", name="Day")
-            if await day_spinbuttons.count() > 0:
-                first_day = day_spinbuttons.first
-                await first_day.click()
-                await first_day.fill(str(day))
-                logger.info(f"Set day: {day}")
+            # Start date: click day, fill day, fill month
+            day_btn = self.page.get_by_role("spinbutton", name="Day")
+            if await day_btn.count() > 0:
+                await day_btn.first.click()
+                await asyncio.sleep(0.2)
+                await day_btn.first.fill(day)
+                logger.info(f"Set start day: {day}")
 
-            # Set first Month spinbutton
-            month_spinbuttons = self.page.get_by_role("spinbutton", name="Month")
-            if await month_spinbuttons.count() > 0:
-                first_month = month_spinbuttons.first
-                await first_month.click()
-                await first_month.fill(str(month))
-                logger.info(f"Set month: {month}")
+            month_btn = self.page.get_by_role("spinbutton", name="Month")
+            if await month_btn.count() > 0:
+                await month_btn.first.fill(month)
+                await asyncio.sleep(0.2)
+                logger.info(f"Set start month: {month}")
 
+            # End date: click on the second day section, fill day and month
+            if await day_btn.count() > 1:
+                await day_btn.nth(1).click()
+                await asyncio.sleep(0.2)
+                await day_btn.nth(1).fill(day)
+                logger.info(f"Set end day: {day}")
+
+            if await month_btn.count() > 1:
+                await month_btn.nth(1).fill(month)
+                await asyncio.sleep(0.2)
+                logger.info(f"Set end month: {month}")
+
+            await asyncio.sleep(0.5)
+            logger.info(f"Date range set to {target_date}")
             return True
+
         except Exception as e:
             logger.error(f"Failed to set date: {e}")
             return False
