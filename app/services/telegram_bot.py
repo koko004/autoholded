@@ -338,6 +338,26 @@ class TelegramBotService:
             self._running = True
             logger.info("Telegram bot started")
 
+            # Register bot commands for autocomplete
+            try:
+                from telegram import BotCommand
+                commands = [
+                    BotCommand("status", "Estado del scheduler y fichaje"),
+                    BotCommand("play", "Iniciar fichaje"),
+                    BotCommand("pause", "Pausar fichaje"),
+                    BotCommand("stop", "Finalizar fichaje"),
+                    BotCommand("fichar", "Fichaje manual (pedira fecha)"),
+                    BotCommand("corregir", "Corregir fichaje de hoy con horario activo"),
+                    BotCommand("start_scheduler", "Iniciar scheduler"),
+                    BotCommand("stop_scheduler", "Detener scheduler"),
+                    BotCommand("screenshots", "Cambiar modo de capturas"),
+                    BotCommand("help", "Lista de comandos"),
+                ]
+                await self.app.bot.set_my_commands(commands)
+                logger.info("Bot commands registered for autocomplete")
+            except Exception as e:
+                logger.error(f"Failed to set bot commands: {e}")
+
             # Notify the chat
             try:
                 await self.app.bot.send_message(
