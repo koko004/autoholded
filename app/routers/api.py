@@ -702,6 +702,39 @@ async def modify_fichaje(request: ModifyFichajeRequest):
     return result
 
 
+@router.post("/attendance/corregir-fichaje")
+async def corregir_fichaje():
+    """Correct today's fichaje by editing it with the active schedule's work blocks."""
+    from app.services.fichador import fichador
+    from app.services.storage import get_schedules
+
+    schedules = get_schedules()
+    schedule = None
+    for s in schedules:
+        if s.get("is_active", True):
+            schedule = s
+            break
+
+    if not schedule:
+        raise HTTPException(status_code=404, detail="No hay horario activo")
+
+    work_blocks = schedule.get("work_blocks", [])
+    if not work_blocks:
+        raise HTTPException(status_code=400, detail="El horario no tiene bloques de trabajo")
+
+    location = schedule.get("location") or "ARCO C.B."
+    target = date.today()
+
+    await _notify_telegram_start(f"🔧 Corrigiendo fichaje {target.isoformat()}")
+    result = await fichador.modificar_fichaje(
+        target_date=target,
+        work_blocks=work_blocks,
+        location=location
+    )
+    await _notify_telegram(f"Corregir fichaje {target.isoformat()}", result)
+    return result
+
+
 # === Logs Endpoints ===
 @router.get("/logs")
 async def get_logs(

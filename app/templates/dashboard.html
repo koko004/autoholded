@@ -106,6 +106,12 @@
                     </div>
                 </div>
                 <p class="form-hint">Usa el horario activo configurado en la seccion de Horarios</p>
+                <div class="correct-fichaje" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color, #e5e7eb);">
+                    <button class="btn btn-warning" id="btn-corregir-fichaje" style="width: 100%;">
+                        &#9998; Corregir Fichaje de Hoy
+                    </button>
+                    <p class="form-hint">Edita el fichaje de hoy en Holded con el horario activo</p>
+                </div>
             </div>
         </div>
         
@@ -151,6 +157,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btn-pause-end').addEventListener('click', (e) => forceFichaje('pause_end', e.target));
     document.getElementById('btn-stop-fichaje').addEventListener('click', (e) => forceFichaje('exit', e.target));
     document.getElementById('btn-manual-fichaje').addEventListener('click', doManualFichaje);
+    document.getElementById('btn-corregir-fichaje').addEventListener('click', corregirFichaje);
     document.getElementById('chk-headless').addEventListener('change', toggleHeadless);
 });
 
@@ -283,6 +290,39 @@ async function forceFichaje(type = 'entry', clickedBtn = null) {
 }
 
 // === Manual Fichaje ===
+
+async function corregirFichaje() {
+    const btn = document.getElementById('btn-corregir-fichaje');
+    const originalText = btn.textContent;
+    
+    if (!confirm('¿Corregir el fichaje de hoy con el horario activo?')) return;
+    
+    btn.disabled = true;
+    btn.textContent = 'Corrigiendo...';
+    
+    try {
+        const response = await fetch('/api/attendance/corregir-fichaje', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            showNotification(result.message || 'Fichaje corregido', 'success');
+            loadDashboardData();
+        } else if (result.status === 'session_expired') {
+            showNotification('Sesion expirada. Inicia sesion en Holded primero.', 'error');
+        } else {
+            showNotification(result.message || result.detail || 'Error al corregir fichaje', 'error');
+        }
+    } catch (error) {
+        showNotification('Error de conexion', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
 
 async function doManualFichaje() {
     const btn = document.getElementById('btn-manual-fichaje');
