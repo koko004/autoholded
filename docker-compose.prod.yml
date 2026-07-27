@@ -1,6 +1,6 @@
 services:
   fichador:
-    image: koko004/autoholded:v1.4.2
+    image: koko004/autoholded:v1.4.3
     container_name: fichador-holded
     restart: unless-stopped
     ports:
