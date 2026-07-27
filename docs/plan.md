@@ -1,409 +1,444 @@
 # Plan de Implementación: Fichador Automático Holded
 
-## 📋 Resumen del Proyecto
+## Resumen del Proyecto
 
-Aplicación web para automatizar el fichaje en Holded mediante Playwright, con interfaz FastAPI, ejecución programada automática y despliegue en Docker.
+Aplicación web para automatizar el fichaje en Holded mediante Playwright, con interfaz FastAPI, ejecución programada automática y despliegue en Docker. Incluye bot de Telegram para control remoto.
 
-**Objetivo:** Automatizar el proceso de fichaje de entrada/salida en Holded según horarios configurables, con soporte para pausas, calendario laboral y notificaciones.
+**Objetivo:** Automatizar el proceso de fichaje en Holded según horarios configurables, con soporte para pausas, fichaje manual, corrección de fichajes, notificaciones y control remoto vía Telegram.
+
+**Versión actual:** v1.4.3
+**Interfaz:** Español | **Timezone:** Europe/Madrid
 
 ---
 
-## 🏗️ Arquitectura Técnica
+## Arquitectura Técnica
 
 ### Stack Tecnológico
-- **Backend:** FastAPI (Python 3.11+)
-- **Automatización:** Playwright (headless Chromium)
-- **Scheduler:** APScheduler (BackgroundScheduler)
-- **Base de datos:** SQLite + SQLAlchemy ORM
-- **Frontend:** HTML/CSS/JavaScript (Jinja2 templates o React ligero)
-- **Contenedorización:** Docker + docker-compose
-- **Notificaciones:** Email SMTP / Webhook opcional
+
+| Componente | Tecnología |
+|------------|------------|
+| Backend | Python 3.11+ / FastAPI 0.104.1 |
+| Automatización | Playwright 1.40.0 (Chromium embebido) |
+| Scheduler | APScheduler 3.10.4 (AsyncIOScheduler, cron triggers) |
+| Bot | python-telegram-bot 20.7 (polling) |
+| Templates | Jinja2 + vanilla JavaScript |
+| Validación | Pydantic v2 2.5.2 |
+| Persistencia | Archivos JSON (sin base de datos relacional) |
+| Contenedor | Docker + Docker Compose (1 servicio) |
 
 ### Componentes Principales
-1. **Fichador Engine** - Módulo Playwright para automatizar Holded
-2. **Scheduler Service** - Programación de tareas de fichaje
-3. **API REST** - Endpoints para configuración y control
-4. **Web UI** - Interfaz de configuración y monitoreo
-5. **Data Layer** - Persistencia de configuración y logs
+
+1. **Fichador Engine** — Motor Playwright que automatiza Holded (login, 2FA, live tracking, fichaje manual, corrección)
+2. **Scheduler Service** — Programación de tareas con APScheduler (cron triggers por bloque de trabajo)
+3. **Telegram Bot** — Control remoto con comandos + envío de screenshots automáticas
+4. **API REST** — ~30 endpoints para configuración y control
+5. **Web UI** — 7 páginas: Dashboard, Configuración, Horarios, Calendario, Historial, Debug, Logs
+6. **Data Layer** — Persistencia en archivos JSON vía `storage.py`
 
 ---
 
-## 🗄️ Esquema de Base de Datos
+## Persistencia de Datos
 
-### Tablas Principales
+Toda la persistencia se realiza en archivos JSON dentro de `data/`:
 
-```sql
--- Configuración de usuario
-CREATE TABLE user_config (
-    id INTEGER PRIMARY KEY,
-    holded_email TEXT NOT NULL,
-    holded_password TEXT NOT NULL,  -- Cifrado
-    timezone TEXT DEFAULT 'Europe/Madrid',
-    created_at TIMESTAMP,
-    updated_at TIMESTAMP
-);
-
--- Horarios de trabajo
-CREATE TABLE work_schedule (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,              -- Ej: "Horario normal", "Turno de mañana"
-    entry_time TIME NOT NULL,        -- Hora de entrada
-    exit_time TIME NOT NULL,         -- Hora de salida
-    pause_start TIME,                -- Inicio pausa
-    pause_end TIME,                  -- Fin pausa
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP
-);
-
--- Días laborables
-CREATE TABLE work_days (
-    id INTEGER PRIMARY KEY,
-    schedule_id INTEGER REFERENCES work_schedule(id),
-    day_of_week INTEGER NOT NULL,   -- 0=Lunes, 6=Domingo
-    is_workday BOOLEAN DEFAULT TRUE
-);
-
--- Calendario laboral (festivos y vacaciones)
-CREATE TABLE calendar_events (
-    id INTEGER PRIMARY KEY,
-    event_date DATE NOT NULL,
-    event_type TEXT NOT NULL,        -- 'holiday', 'vacation', 'special_schedule'
-    schedule_id INTEGER REFERENCES work_schedule(id),  -- Para días especiales
-    description TEXT,
-    created_at TIMESTAMP
-);
-
--- Registro de fichajes
-CREATE TABLE attendance_log (
-    id INTEGER PRIMARY KEY,
-    date DATE NOT NULL,
-    entry_time TIMESTAMP,
-    exit_time TIMESTAMP,
-    pause_minutes INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'pending',   -- pending, completed, error
-    notes TEXT,
-    created_at TIMESTAMP
-);
-
--- Configuración de notificaciones
-CREATE TABLE notification_config (
-    id INTEGER PRIMARY KEY,
-    email_enabled BOOLEAN DEFAULT TRUE,
-    email_recipients TEXT,           -- JSON array de emails
-    webhook_enabled BOOLEAN DEFAULT FALSE,
-    webhook_url TEXT,
-    notify_on_success BOOLEAN DEFAULT TRUE,
-    notify_on_error BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP
-);
-
--- Logs del sistema
-CREATE TABLE system_logs (
-    id INTEGER PRIMARY KEY,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    level TEXT NOT NULL,             -- info, warning, error
-    module TEXT NOT NULL,            -- scheduler, fichador, api
-    message TEXT NOT NULL,
-    details TEXT                     -- JSON adicional
-);
 ```
+data/
+├── schedules.json      # Horarios de trabajo (bloques, ubicación, días laborables)
+├── config.json         # Configuración (credenciales Holded, Telegram, notificaciones)
+├── attendance.json     # Registro de fichajes (upsert por fecha)
+├── calendar.json       # Eventos del calendario laboral
+├── cookies/            # Sesiones Holded persistidas
+├── debug/              # Screenshots de Playwright (paso a paso)
+├── *.png               # Screenshots de debug (última operación)
+```
+
+**Nota:** Existen modelos SQLAlchemy en `app/models/` pero son código muerto. No se usa base de datos relacional.
 
 ---
 
-## 🔄 Flujo de Trabajo Principal
+## Flujo de Trabajo Principal
 
-### Flujo de Fichaje Automático
+### Flujo de Fichaje Automático (Scheduler)
+
+El scheduler usa **live tracking** (botones Play/Pause/Stop), NO el formulario "Añadir fichaje".
+
 ```
-1. Scheduler dispara tarea a la hora configurada
+1. Scheduler dispara job a la hora configurada (cron trigger)
    ↓
-2. Verificar si es día laborable (no festivo/vacaciones)
+2. Verificar si es día laborable (L-V por defecto)
    ↓
-3. Instanciar Playwright (headless Chromium)
+3. Verificar sesión válida (cookies persistidas)
    ↓
-4. Navegar a https://app.holded.com/myzone
+4. Instanciar Playwright (Chromium embebido, headless configurable)
    ↓
-5. Realizar login con credenciales guardadas
+5. Navegar a https://app.holded.com/myzone/time-tracking
    ↓
-6. Navegar a sección "Control horario"
+6. Cerrar panel de Intercom si está abierto
    ↓
-7. Hacer clic en "Añadir fichaje"
+7. Ejecutar acción según el job:
+   - start → clic en ▶ Play (iniciar/reanudar fichaje)
+   - pause → clic en ⏸ Pause (pausar fichaje)
+   - stop  → clic en ⏹ Stop (finalizar fichaje)
    ↓
-8. Configurar fecha (rango de fechas)
+8. Guardar registro en attendance.json (upsert por fecha)
    ↓
-9. Seleccionar ubicación (Oficina/Remoto/Sin definir)
+9. Enviar screenshots a Telegram (si está configurado)
    ↓
-10. Establecer hora entrada/salida
-    ↓
-11. Guardar fichaje (clic "Aceptar")
-    ↓
-12. Registrar resultado en attendance_log
-    ↓
-13. Enviar notificación si está habilitada
-    ↓
-14. Cerrar navegador
+10. Cerrar navegador
 ```
+
+### Mapeo de jobs por bloque de trabajo
+
+Para un horario con bloques `[{entry: "10:00", exit: "13:00", type: "Trabajado"}, {entry: "15:00", exit: "19:00", type: "Trabajado"}]`:
+
+| Hora | Job | Acción |
+|------|-----|--------|
+| 10:00 | `schedule_X_start` | `start_live_tracking` (▶ Play) |
+| 13:00 | `schedule_X_block0_pause` | `pause_live_tracking` (⏸ Pause) |
+| 15:00 | `schedule_X_block1_resume` | `start_live_tracking` (▶ Play) |
+| 19:00 | `schedule_X_stop` | `stop_live_tracking` (⏹ Stop) |
+
+### Fichaje Manual
+
+```
+1. Usuario introduce fecha en Dashboard o envía /fichar en Telegram
+   ↓
+2. Coge horario activo de schedules.json
+   ↓
+3. Playwright → Control horario → "Añadir fichaje"
+   ↓
+4. Rellena fecha, ubicación, y filas de horario (entry/exit por bloque)
+   ↓
+5. Clic en "Aceptar"
+   ↓
+6. Guarda en attendance.json
+```
+
+### Corregir Fichaje
+
+```
+1. Usuario pulsa "Corregir Fichaje de Hoy" o envía /corregir en Telegram
+   ↓
+2. Coge horario activo de schedules.json
+   ↓
+3. Playwright → /myzone/time-tracking → cierra Intercom
+   ↓
+4. Clic en la fila del día (data-id="YYYY-MM-DD")
+   ↓
+5. Clic en "Editar fichajes"
+   ↓
+6. Selecciona ubicación, rellena bloques de trabajo
+   ↓
+7. Doble clic en "Guardar"
+```
+
+### Control en Tiempo Real (Dashboard)
+
+Los botones del Dashboard ejecutan la misma lógica que el scheduler:
+- **Fichar Ahora** → `start_live_tracking`
+- **Iniciar Pausa** → `pause_live_tracking`
+- **Finalizar Pausa** → `start_live_tracking`
+- **Finalizar Fichaje** → `stop_live_tracking`
 
 ---
 
-## 📡 Endpoints API
+## Endpoints API
 
-### Autenticación y Configuración
+### Autenticación
 ```
-POST   /api/auth/login          - Login y guardar credenciales
-GET    /api/config              - Obtener configuración actual
-PUT    /api/config              - Actualizar configuración
+POST   /api/auth/login              - Login con email/password (2FA)
+POST   /api/auth/2fa                - Verificar código 2FA
+POST   /api/auth/check-session      - Verificar sesión Holded
+GET    /api/auth/session-info       - Info de sesión (TTL, email)
+POST   /api/auth/logout             - Cerrar sesión
+```
+
+### Configuración
+```
+GET    /api/config                  - Obtener configuración
+PUT    /api/config                  - Actualizar configuración
+GET    /api/config/headless         - Estado modo headless
+POST   /api/config/headless         - Cambiar modo headless
 ```
 
 ### Horarios
 ```
-GET    /api/schedules           - Listar horarios
-POST   /api/schedules           - Crear horario
-PUT    /api/schedules/{id}      - Actualizar horario
-DELETE /api/schedules/{id}      - Eliminar horario
-GET    /api/schedules/{id}/days - Obtener días del horario
-PUT    /api/schedules/{id}/days - Actualizar días del horario
-```
-
-### Calendario Laboral
-```
-GET    /api/calendar            - Listar eventos del calendario
-POST   /api/calendar            - Añadir evento (festivo/vacaciones)
-DELETE /api/calendar/{id}       - Eliminar evento
-GET    /api/calendar/today      - Verificar si hoy es laborable
+GET    /api/schedules               - Listar horarios
+POST   /api/schedules               - Crear horario
+PUT    /api/schedules/{id}          - Actualizar horario
+DELETE /api/schedules/{id}          - Eliminar horario
 ```
 
 ### Fichajes
 ```
-GET    /api/attendance                    - Listar fichajes
-GET    /api/attendance/today              - Fichaje de hoy
-POST   /api/attendance/manual             - Fichaje manual
-GET    /api/attendance/history            - Historial con filtros
-GET    /api/attendance/stats              - Estadísticas
+GET    /api/attendance              - Listar fichajes
+DELETE /api/attendance/{id}         - Eliminar fichaje
+GET    /api/attendance/today        - Estado de hoy
+POST   /api/attendance/manual-fichaje  - Fichaje manual (formulario Añadir fichaje)
+POST   /api/attendance/corregir-fichaje - Corregir fichaje de hoy (editar existente)
+POST   /api/attendance/modify-fichaje   - Modificar fichaje existente
 ```
 
-### Scheduler y Control
+### Scheduler y Control en Tiempo Real
 ```
-POST   /api/scheduler/start     - Iniciar scheduler
-POST   /api/scheduler/stop      - Detener scheduler
-GET    /api/scheduler/status    - Estado del scheduler
-POST   /api/scheduler/force     - Ejecución forzada inmediata
+POST   /api/scheduler/start         - Iniciar scheduler
+POST   /api/scheduler/stop          - Detener scheduler
+GET    /api/scheduler/status        - Estado del scheduler
+POST   /api/scheduler/force         - Ejecución forzada (play/pause/stop/exit)
 ```
 
-### Logs y Monitoreo
+### Telegram Bot
 ```
-GET    /api/logs                - Obtener logs del sistema
-GET    /api/logs/attendance     - Logs de fichajes
-DELETE /api/logs/clean          - Limpiar logs antiguos
+GET    /api/telegram/config         - Config Telegram (token enmascarado)
+PUT    /api/telegram/config         - Actualizar config Telegram
+POST   /api/telegram/test           - Probar conexión Telegram
+GET    /api/telegram/status         - Estado del bot
+```
+
+### Debug y Logs
+```
+GET    /api/debug/steps             - Pasos de debug (última operación)
+GET    /api/debug/screenshot/{f}    - Captura individual
+GET    /api/logs                    - Logs del sistema (SSE streaming)
+DELETE /api/logs                    - Limpiar logs
+```
+
+### Calendario
+```
+GET    /api/calendar                - Listar eventos
+POST   /api/calendar                - Crear evento
+DELETE /api/calendar/{id}           - Eliminar evento
+```
+
+### Health Check
+```
+GET    /health                      - Health check
 ```
 
 ---
 
-## 🖥️ Interfaz Web (FastAPI + Templates)
+## Interfaz Web (FastAPI + Jinja2)
 
-### Páginas Principales
+### Páginas
 
-1. **Dashboard (`/`)**
-   - Estado del scheduler (activo/inactivo)
-   - Próximo fichaje programado
-   - Resumen del día (horas trabajadas)
-   - Últimos fichajes registrados
-   - Alertas y notificaciones
-
-2. **Configuración (`/config`)**
-   - Credenciales Holded (email/contraseña)
-   - Zona horaria
-   - Configuración de notificaciones
-
-3. **Horarios (`/schedules`)**
-   - Lista de horarios configurados
-   - Formulario crear/editar horario
-   - Configuración de pausas
-   - Selección de días laborables
-
-4. **Calendario (`/calendar`)**
-   - Vista mensual del calendario laboral
-   - Marcar festivos y vacaciones
-   - Importar/exportar calendario
-
-5. **Historial (`/attendance`)**
-   - Tabla de fichajes con filtros
-   - Estadísticas (horas semanales/mensuales)
-   - Exportar a CSV/Excel
-
-6. **Logs (`/logs`)**
-   - Log del sistema en tiempo real
-   - Filtrar por nivel/módulo/fecha
-   - Limpiar logs antiguos
+1. **Dashboard (`/`)** — Estado del scheduler, estado de hoy, botones de live tracking, fichaje manual, corrección de fichaje, tabla de últimos fichajes
+2. **Configuración (`/config`)** — Login 2FA Holded, sesión activa con TTL, bot de Telegram, notificaciones por email
+3. **Horarios (`/schedules`)** — CRUD de horarios con bloques de trabajo (Trabajado/Pausa), ubicación, días laborables
+4. **Calendario (`/calendar`)** — Vista de eventos laborales
+5. **Historial (`/attendance`)** — Tabla de fichajes con filtros, modificar fichaje existente, exportar CSV
+6. **Debug (`/debug`)** — Capturas de Playwright paso a paso (ordenadas del más reciente al más antiguo), auto-refresh
+7. **Logs (`/logs`)** — Logs del sistema en tiempo real via SSE
 
 ---
 
-## 🐳 Configuración Docker
+## Bot de Telegram
 
-### Estructura del Proyecto
+### Comandos
+
+| Comando | Descripción |
+|---------|-------------|
+| `/start` | Bienvenida y lista de comandos |
+| `/help` | Lista de comandos |
+| `/status` | Estado del scheduler y fichaje de hoy |
+| `/play` | Iniciar fichaje (live tracking) |
+| `/pause` | Pausar fichaje |
+| `/stop` | Finalizar fichaje |
+| `/fichar` | Fichaje manual (pide fecha en formato DD/MM/YYYY) |
+| `/corregir` | Corregir fichaje de hoy con horario activo |
+| `/start_scheduler` | Iniciar scheduler |
+| `/stop_scheduler` | Detener scheduler |
+| `/screenshots` | Cambiar modo de capturas (all/last/summary) |
+
+### Modos de screenshots
+- `all` — Todas las capturas de cada acción (4-6 imágenes)
+- `last` — Solo la última captura (resultado final)
+- `summary` — Última captura + mensaje de resumen
+
+### Autocompletado
+Los comandos se registran automáticamente con `set_my_commands` al iniciar el bot.
+
+---
+
+## Estructura del Proyecto
+
 ```
 fichador-holded/
 ├── app/
-│   ├── __init__.py
-│   ├── main.py                 # FastAPI app
-│   ├── config.py               # Settings
-│   ├── database.py             # SQLAlchemy setup
-│   ├── models/                 # Modelos DB
-│   ├── schemas/                # Pydantic schemas
-│   ├── routers/                # API routes
-│   ├── services/               # Business logic
-│   │   ├── fichador.py         # Playwright engine
-│   │   ├── scheduler.py        # APScheduler
-│   │   └── notifications.py    # Email/Webhook
-│   ├── templates/              # Jinja2 templates
-│   └── static/                 # CSS/JS/images
-├── tests/
+│   ├── main.py              - Entry point FastAPI + lifecycle (auto-start scheduler y bot)
+│   ├── config.py            - Pydantic Settings (.env vars)
+│   ├── database.py          - SQLAlchemy async engine (UNUSED)
+│   ├── models/
+│   │   └── __init__.py      - SQLAlchemy ORM models (7 tablas, UNUSED)
+│   ├── schemas/
+│   │   └── __init__.py      - Pydantic request/response schemas
+│   ├── routers/
+│   │   ├── api.py           - REST API (~30 endpoints)
+│   │   └── web.py           - Rutas HTML (7 páginas)
+│   ├── services/
+│   │   ├── fichador.py      - Motor Playwright (~1900 líneas, core de la app)
+│   │   ├── scheduler.py     - APScheduler con cron triggers
+│   │   ├── storage.py       - Persistencia en archivos JSON
+│   │   ├── telegram_bot.py  - Bot de Telegram (polling, comandos, screenshots)
+│   │   └── notifications.py - Email SMTP + webhooks
+│   ├── templates/           - Templates Jinja2 (7 páginas)
+│   └── static/
+│       ├── css/style.css    - Estilos + responsive móvil
+│       ├── js/main.js       - Funciones JS compartidas
+│       └── img/             - Logo, favicon
+├── data/                    - Runtime: JSON storage, cookies, screenshots, debug
+├── tests/                   - Tests (vacío)
 ├── docs/
-├── docker-compose.yml
-├── Dockerfile
-├── requirements.txt
-├── .env.example
-└── README.md
-```
-
-### Docker Compose
-```yaml
-version: '3.8'
-
-services:
-  fichador:
-    build: .
-    container_name: fichador-holded
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/app/data          # SQLite DB
-      - ./logs:/app/logs          # Logs
-      - ./config:/app/config      # Configuración
-    environment:
-      - DATABASE_URL=sqlite:///data/fichador.db
-      - TZ=Europe/Madrid
-    depends_on:
-      - chromium
-
-  chromium:
-    image: browserless/chrome
-    container_name: fichador-chromium
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      - CONNECTION_TIMEOUT=300
-      - MAX_CONCURRENT_SESSIONS=1
+│   └── plan.md              - Este archivo
+├── *.ts                     - Scripts Playwright grabados (referencia, NO se ejecutan)
+├── docker-compose.yml       - Desarrollo (build local)
+├── docker-compose.prod.yml  - Producción (imagen Docker Hub + .env)
+├── docker-compose.nodotenv.yml - Producción sin .env (variables inline)
+├── Dockerfile               - Python 3.11-slim + Chromium + dependencias Playwright
+├── entrypoint.sh            - Xvfb + uvicorn
+├── requirements.txt         - 15 dependencias
+├── .env                     - Credenciales reales (gitignored)
+├── .env.example             - Placeholders seguros
+├── .gitignore               - Excluye archivos sensibles
+└── README.md                - Documentación del proyecto
 ```
 
 ---
 
-## ⏰ Programación de Tareas
+## Configuración Docker
 
-### Configuración del Scheduler
-- **Ejecución:** Diaria a la hora de entrada y salida configurada
-- **Verificación previa:** Comprobar si es día laborable
-- **Reintentos:** Máximo 3 intentos en caso de error
-- **Timeout:** 5 minutos máximo por operación de fichaje
-- **Logs:** Registro detallado de cada ejecución
-
-### Ejemplo de Configuración
-```python
-scheduler.add_job(
-    fichar_entrada,
-    CronTrigger(hour=9, minute=0, day_of_week='mon-fri'),
-    id='fichaje_entrada',
-    misfire_grace_time=300
-)
-
-scheduler.add_job(
-    fichar_salida,
-    CronTrigger(hour=17, minute=0, day_of_week='mon-fri'),
-    id='fichaje_salida',
-    misfire_grace_time=300
-)
+### Desarrollo (build local)
+```bash
+docker compose up --build -d
 ```
 
----
+### Producción (imagen pre-compilada)
+```bash
+# Con .env
+docker compose -f docker-compose.prod.yml up -d
 
-## 🛡️ Seguridad
+# Sin .env (variables inline)
+docker compose -f docker-compose.nodotenv.yml up -d
+```
 
-1. **Credenciales:** Cifrado AES-256 para contraseña Holded
-2. **HTTPS:** Configurar certificado SSL/TLS
-3. **Autenticación:** API key o JWT para endpoints
-4. **Rate limiting:** Prevenir abuso de la API
-5. **Logs sensibles:** Nunca logear contraseñas
+### Servicios
 
----
+| Servicio | Descripción |
+|----------|-------------|
+| `fichador` | Aplicación completa (FastAPI + Chromium embebido + Xvfb) |
 
-## 📊 Características Adicionales
-
-### Notificaciones
-- Email al completar fichaje
-- Alerta en caso de error
-- Recordatorio si no se fichó
-
-### Estadísticas
-- Horas trabajadas por semana/mes
-- Días de ausencia
-- Balance de horas
-
-### Exportación
-- CSV de fichajes
-- Informes mensuales
-- Integración con calendario (iCal)
+**Puerto:** 8002:8000
+**Volumen:** `./data:/app/data`
+**SHM:** 2gb (necesario para Chromium)
+**Variables clave:** `HEADLESS=false`, `DISPLAY=:99`, `TZ=Europe/Madrid`
 
 ---
 
-## 🚀 Pasos de Implementación
+## Selección de Selectores Playwright
 
-### Fase 1: Fundamentos (Días 1-2)
-1. Crear estructura del proyecto
-2. Configurar FastAPI base
-3. Implementar modelos SQLAlchemy
-4. Configurar Docker básico
+Estrategia de selección multi-fallback para resistir cambios en la UI de Holded:
 
-### Fase 2: Fichador Playwright (Días 3-4)
-1. Implementar login automatizado
-2. Implementar navegación a Control horario
-3. Implementar creación de fichaje
-4. Manejo de errores y reintentos
-
-### Fase 3: Scheduler (Día 5)
-1. Integrar APScheduler
-2. Configurar tareas cron
-3. Implementar lógica de días laborables
-
-### Fase 4: API y Web UI (Días 6-8)
-1. Implementar todos los endpoints
-2. Crear interfaz web con templates
-3. Formularios de configuración
-4. Dashboard de monitoreo
-
-### Fase 5: Extras (Días 9-10)
-1. Sistema de notificaciones
-2. Estadísticas y reportes
-3. Exportación CSV
-4. Documentación y tests
+| Elemento | Selector principal | Fallback |
+|----------|-------------------|----------|
+| Play button | `button:has(svg[aria-label="Icon-play"])` | `get_by_role("button", name="Play")` |
+| Pause button | `button:has(svg[aria-label="Icon-pause"])` | `get_by_role("button", name="Pause")` |
+| Stop button | `button:has(svg[aria-label="Icon-stop"])` | `get_by_role("button", name="Stop")` |
+| Intercom close | `document.querySelector('[data-testid="close-button"]')` | CSS hide como fallback |
+| Fichaje row | `[data-id="YYYY-MM-DD"]` (MUI DataGrid) | `get_by_text("Lun 27")` |
+| Editar fichajes | `get_by_role("button", name="Editar fichajes")` | Text/role fallbacks |
+| Ubicación | `get_by_role("combobox", name="Ubicación")` | Iteración por contenido |
 
 ---
 
-## ⚠️ Riesgos y Mitigaciones
+## Funcionalidades Implementadas (v1.4.3)
+
+### Core
+- Login automatizado con 2FA interactivo (asyncio.Event)
+- Live tracking: Play, Pause, Stop
+- Fichaje manual con formulario "Añadir fichaje"
+- Corrección de fichaje existente ("Editar fichajes")
+- Selectores robustos con multi-fallback
+- Auto-cierre del panel de Intercom
+- Detección de errores Holded (MUI Snackbar), ignorando toasts de éxito
+
+### Scheduler
+- APScheduler AsyncIOScheduler con cron triggers
+- Jobs por bloque de trabajo (start/pause/resume/stop)
+- Verificación de días laborables
+- Auto-start al iniciar la aplicación
+- Persistencia de estado en memoria
+
+### Telegram Bot
+- 11 comandos con autocompletado (set_my_commands)
+- Screenshots automáticas post-acción (3 modos: all/last/summary)
+- Mensaje instantáneo antes de cada acción
+- Modo polling (sin webhook)
+
+### Web UI
+- 7 páginas con diseño responsive (móvil + escritorio)
+- Dashboard con control en tiempo real
+- Debug con capturas de Playwright paso a paso (orden invertido: más reciente arriba)
+- Logs en tiempo real via SSE
+- Configuración de Telegram integrada
+
+### Datos
+- Persistencia JSON (upsert por fecha, sin duplicados)
+- Attendance con campos inteligentes por tipo de acción
+- Sesión Holded persistida (cookies)
+- Email del usuario visible en Config (desde .env como fallback)
+
+---
+
+## Pasos de Implementación (Completados)
+
+### Fase 1: Fundamentos ✅
+- Estructura del proyecto
+- FastAPI base con lifespan
+- Modelos Pydantic (schemas)
+- Docker básico con Chromium embebido
+
+### Fase 2: Fichador Playwright ✅
+- Login automatizado con 2FA
+- Navegación a Control horario
+- Live tracking (Play/Pause/Stop)
+- Fichaje manual ("Añadir fichaje")
+- Corrección de fichaje ("Editar fichajes")
+- Manejo de errores y selectores robustos
+
+### Fase 3: Scheduler ✅
+- APScheduler AsyncIOScheduler
+- Cron triggers por bloque de trabajo
+- Lógica de días laborables
+- Auto-start al iniciar la app
+
+### Fase 4: API y Web UI ✅
+- ~30 endpoints REST
+- 7 páginas con templates Jinja2
+- Responsive móvil
+- Dashboard, Config, Horarios, Calendario, Historial, Debug, Logs
+
+### Fase 5: Extras ✅
+- Bot de Telegram (11 comandos, screenshots, autocompletado)
+- Notificaciones (email + webhook)
+- Persistencia JSON con upsert
+- Debug screenshots paso a paso
+
+---
+
+## Riesgos y Mitigaciones
 
 | Riesgo | Impacto | Mitigación |
 |--------|---------|------------|
-| Cambios en UI de Holded | Alto | Selectores robustos, monitoreo, actualizaciones rápidas |
-| Bloqueo por intentos fallidos | Alto | Rate limiting, reintentos con backoff |
-| Credenciales comprometidas | Crítico | Cifrado, acceso restringido, rotación |
-| Fallo de scheduler | Medio | Persistencia de tareas, watchdog |
-| Problemas de red | Medio | Reintentos, timeout configurables |
+| Cambios en UI de Holded | Alto | Selectores multi-fallback (aria-label, role, text), screenshots en cada paso |
+| Sesión expirada | Alto | Detección automática, notificación Telegram, re-login manual |
+| Bloqueo por intentos fallidos | Medio | Un solo intento por acción, sin reintentos automáticos |
+| Fallo de scheduler | Medio | Auto-start al reiniciar, estado en memoria |
+| Problemas de red | Medio | Timeout configurable (60s), cierre seguro de navegador |
 
 ---
 
-## 📝 Notas Importantes
+## Notas Importantes
 
 1. **Legalidad:** Verificar que el uso cumpla con la normativa laboral
-2. **Transparencia:** Considerar informar a recursos humanos
-3. **Auditoría:** Mantener logs completos para auditorías
-4. **Mantenimiento:** Actualizar selectores si Holded cambia su UI
+2. **Código muerto:** `app/models/`, `app/database.py` y dependencias SQLAlchemy/aiosqlite no se usan (persistencia es JSON)
+3. **Seguridad:** Las credenciales están en `.env` (gitignored). Los endpoints API no tienen autenticación propia
+4. **Docker:** La imagen en Docker Hub debe actualizarse manualmente con `docker push` para cada tag

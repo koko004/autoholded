@@ -6,7 +6,7 @@
 
 Sistema automatizado de fichaje para [Holded ERP](https://www.holded.com/) usando Playwright. Dashboard web para configuración, monitorización y control manual. Bot de Telegram para control remoto.
 
-**Interfaz en español** | **Timezone: Europe/Madrid** | **v1.4.2**
+**Interfaz en español** | **Timezone: Europe/Madrid** | **v1.4.3**
 
 ## Características
 
