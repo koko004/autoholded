@@ -1354,37 +1354,53 @@ class HoldedFichador:
 
             await self.page.screenshot(path="data/before_modificar_fichaje.png")
 
-            # Click on the target date entry in the fichaje list
+# Click on the target date entry in the fichaje list
             clicked_entry = await self._click_fichaje_entry(target_date)
             if not clicked_entry:
                 await self._async_debug_screenshot("No se encontro fichaje", "error_no_entry")
                 await self.stop()
                 return {"status": "error", "message": f"No se encontró el fichaje del {target_date}"}
 
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)  # Wait for UI to update
             await self._async_debug_screenshot("Fichaje clickeado", "clicked_entry")
 
-            # Click "Editar fichajes" button
-            try:
-                edit_btn = self.page.get_by_role("button", name="Editar fichajes")
-                if await edit_btn.count() > 0:
-                    await edit_btn.click()
-                    await asyncio.sleep(3)
-                    logger.info("Clicked 'Editar fichajes' button")
-                else:
-                    # Fallback: try text selector
-                    edit_btn = await self.page.query_selector('button:has-text("Editar fichajes")')
-                    if edit_btn:
-                        await edit_btn.click()
-                        await asyncio.sleep(3)
+            # Click "Editar fichajes" button - try multiple selectors
+            edit_btn = None
+            edit_selectors = [
+                ('role', {"name": "Editar fichajes"}),
+                ('text', 'button:has-text("Editar fichajes")'),
+                ('role', {"name": "Editar"}),
+                ('text', 'button:has-text("Editar")'),
+                ('role', {"name": "Modificar"}),
+                ('text', 'button:has-text("Modificar")'),
+            ]
+            
+            for selector_type, selector_value in edit_selectors:
+                try:
+                    if selector_type == 'role':
+                        btn = self.page.get_by_role("button", name=selector_value["name"])
                     else:
-                        await self._async_debug_screenshot("No se encontro Editar fichajes", "error_no_edit_btn")
-                        await self.stop()
-                        return {"status": "error", "message": "No se encontró el botón 'Editar fichajes'"}
-            except Exception as e:
-                await self._async_debug_screenshot("Error click Editar fichajes", "error_edit_btn")
+                        btn = self.page.query_selector(selector_value)
+                        if btn:
+                            # wrap in locator for consistency
+                            btn = self.page.locator(selector_value)
+                    
+                    if await btn.count() > 0:
+                        edit_btn = btn
+                        logger.info(f"Found 'Editar fichajes' with {selector_type}: {selector_value}")
+                        break
+                except Exception as e:
+                    logger.debug(f"Selector {selector_type}: {selector_value} failed: {e}")
+                    continue
+            
+            if edit_btn:
+                await edit_btn.click()
+                await asyncio.sleep(3)
+                logger.info("Clicked 'Editar fichajes' button")
+            else:
+                await self._async_debug_screenshot("No se encontro Editar fichajes", "error_no_edit_btn")
                 await self.stop()
-                return {"status": "error", "message": f"No se pudo abrir el formulario de edición: {e}"}
+                return {"status": "error", "message": "No se encontró el botón 'Editar fichajes' (probados: role=Editar fichajes, text=Editar fichajes, role=Editar, text=Editar, role=Modificar, text=Modificar)"}
 
             await self._async_debug_screenshot("Formulario de edicion abierto", "edit_form_open")
 
@@ -1444,47 +1460,38 @@ class HoldedFichador:
             await self.stop()
 
     async def _click_fichaje_entry(self, target_date: date) -> bool:
-        """Click on a specific fichaje entry in the Control horario page."""
+        """Click on a specific fichaje entry in the Control horario page.
+        Uses the MUI DataGrid row's data-id attribute (ISO date format)."""
         try:
-            # Strategy 1: Look for date text (e.g., "2 jul" or "2 de julio")
-            date_str = target_date.strftime("%-d")
-            month_names = {
-                1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
-                5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
-                9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
-            }
-            month_name = month_names.get(target_date.month, "")
+            date_id = target_date.isoformat()  # e.g. "2026-07-27"
 
-            # Try various date text formats
-            date_patterns = [
-                f"{date_str} {month_name[:3]}",
-                f"{date_str} de {month_name}",
-                f"{target_date.strftime('%d/%m')}",
-                f"{target_date.strftime('%d-%m')}",
-                str(target_date.day),
+            # Strategy 1: Use MUI DataGrid data-id attribute (most reliable)
+            try:
+                row = self.page.locator(f'[data-id="{date_id}"]')
+                if await row.count() > 0:
+                    await row.first.click()
+                    logger.info(f"Clicked fichaje entry with data-id: {date_id}")
+                    return True
+            except Exception as e:
+                logger.debug(f"data-id click failed: {e}")
+
+            # Strategy 2: Click the row text (e.g. "Lun 27")
+            day_names = {0: "Lun", 1: "Mar", 2: "Mié", 3: "Jue", 4: "Vie", 5: "Sáb", 6: "Dom"}
+            day_abbr = day_names.get(target_date.weekday(), "")
+            row_texts = [
+                f"{day_abbr} {target_date.day}",
+                target_date.strftime("%-d"),
             ]
-
-            for pattern in date_patterns:
+            for txt in row_texts:
                 try:
-                    elements = self.page.get_by_text(pattern, exact=False)
-                    count = await elements.count()
+                    row = self.page.get_by_text(txt, exact=False)
+                    count = await row.count()
                     if count > 0:
-                        # Click the first matching element (the date entry)
-                        await elements.first.click()
-                        logger.info(f"Clicked fichaje entry with pattern: {pattern}")
+                        await row.first.click()
+                        logger.info(f"Clicked fichaje entry with text: {txt}")
                         return True
                 except:
                     continue
-
-            # Strategy 2: Try clicking on any "Pendiente" or status text near the date
-            try:
-                pending = self.page.get_by_text("Pendiente")
-                if await pending.count() > 0:
-                    await pending.first.click()
-                    logger.info("Clicked 'Pendiente' entry as fallback")
-                    return True
-            except:
-                pass
 
             logger.warning(f"Could not find fichaje entry for {target_date}")
             return False
