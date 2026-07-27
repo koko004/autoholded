@@ -119,7 +119,7 @@ Los comandos se registran automáticamente con `set_my_commands` al iniciar el b
 Los horarios se configuran desde la web (`/schedules`). Cada horario define:
 
 - **Bloques de trabajo** con tipo (Trabajado / Pausa)
-- **Ubicación** (ej: "REAL FEDERACION DE FUTBOL DEL")
+- **Ubicación** (ej: "Tu Empresa S.L.")
 - **Días laborables** (L-V)
 
 ## Páginas
@@ -251,4 +251,4 @@ tests/                 - Tests (vacío)
 
 ## Licencia
 
-Proyecto privado — REAL FEDERACION DE FUTBOL DEL
+Proyecto privado
