@@ -80,8 +80,8 @@ class FichadorScheduler:
 
         For a schedule with work_blocks [{entry, exit}, ...], we create:
         - Job at block[0].entry -> start_live_tracking (play)
-        - Job at block[i].exit -> pause_live_tracking (for intermediate blocks)
-        - Job at block[i].entry -> start_live_tracking (resume, for intermediate blocks)
+        - Job at block[i].exit -> pause_live_tracking (for intermediate Trabajado blocks)
+        - Job at block[i].entry -> start_live_tracking (resume, for intermediate Trabajado blocks)
         - Job at block[-1].exit -> stop_live_tracking (stop)
         """
         schedule_id = schedule.get("id")
@@ -123,7 +123,9 @@ class FichadorScheduler:
         # Intermediate jobs: pause at block exits, resume at next block entries
         for i in range(len(work_blocks) - 1):
             block_exit = self._parse_time(work_blocks[i].get("exit"))
-            next_entry = self._parse_time(work_blocks[i + 1].get("entry"))
+            next_block = work_blocks[i + 1]
+            next_entry = self._parse_time(next_block.get("entry"))
+            next_type = next_block.get("type", "Trabajado")
 
             if block_exit:
                 job_id = f"schedule_{schedule_id}_block{i}_pause"
@@ -140,7 +142,7 @@ class FichadorScheduler:
                 )
                 logger.info(f"Added PAUSE job: {schedule_id} block {i} at {block_exit}")
 
-            if next_entry:
+            if next_entry and next_type != "Pausa":
                 job_id = f"schedule_{schedule_id}_block{i+1}_resume"
                 self.scheduler.add_job(
                     self._execute_live_tracking,
@@ -154,6 +156,8 @@ class FichadorScheduler:
                     replace_existing=True
                 )
                 logger.info(f"Added RESUME job: {schedule_id} block {i+1} at {next_entry}")
+            elif next_entry:
+                logger.info(f"Skipped RESUME job: {schedule_id} block {i+1} is Pausa type, no resume needed")
 
         # Final job: Stop tracking at last block exit
         last_block = work_blocks[-1]
@@ -193,6 +197,9 @@ class FichadorScheduler:
         """
         logger.info(f"=== SCHEDULER JOB FIRED: action={action}, schedule_id={schedule_id} ===")
 
+        MAX_RETRIES = 2
+        RETRY_DELAY = 5
+
         try:
             schedule = None
             if schedule_id:
@@ -201,6 +208,19 @@ class FichadorScheduler:
 
             if not self._is_workday(schedule):
                 logger.info("Today is not a workday, skipping")
+                try:
+                    from app.services.telegram_bot import telegram_bot
+                    if telegram_bot.is_running:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(
+                                telegram_bot.send_notification("ℹ️ *Scheduler*\n\nHoy no es dia laborable, fichaje omitido.")
+                            )
+                        finally:
+                            loop.close()
+                except Exception as e:
+                    logger.error(f"Failed to send Telegram notification: {e}")
                 return
 
             # Check session validity before starting browser
@@ -210,6 +230,23 @@ class FichadorScheduler:
 
             if not fichador.is_session_valid():
                 logger.error("Session file is missing or expired. Cannot execute fichaje.")
+                try:
+                    from app.services.telegram_bot import telegram_bot
+                    if telegram_bot.is_running:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(
+                                telegram_bot.send_notification(
+                                    "⚠️ *Sesion expirada*\n\n"
+                                    "No se puede ejecutar el fichaje porque la sesion de Holded ha expirado. "
+                                    "Inicia sesion manualmente para reactivar."
+                                )
+                            )
+                        finally:
+                            loop.close()
+                except Exception as e:
+                    logger.error(f"Failed to send Telegram notification: {e}")
                 return
 
             # Create a new event loop for this thread
@@ -217,16 +254,40 @@ class FichadorScheduler:
             asyncio.set_event_loop(loop)
 
             try:
-                logger.info(f"Running {action} live tracking...")
-                if action == 'start':
-                    result = loop.run_until_complete(fichador.start_live_tracking())
-                elif action == 'pause':
-                    result = loop.run_until_complete(fichador.pause_live_tracking())
-                elif action == 'stop':
-                    result = loop.run_until_complete(fichador.stop_live_tracking())
-                else:
-                    logger.error(f"Unknown action: {action}")
-                    return
+                result = None
+                last_exception = None
+                for attempt in range(1, MAX_RETRIES + 1):
+                    try:
+                        logger.info(f"Running {action} live tracking (attempt {attempt}/{MAX_RETRIES})...")
+                        if action == 'start':
+                            result = loop.run_until_complete(fichador.start_live_tracking())
+                        elif action == 'pause':
+                            result = loop.run_until_complete(fichador.pause_live_tracking())
+                        elif action == 'stop':
+                            result = loop.run_until_complete(fichador.stop_live_tracking())
+                        else:
+                            logger.error(f"Unknown action: {action}")
+                            return
+
+                        if result.get("status") in ("success", "session_expired"):
+                            break
+
+                        logger.warning(f"Attempt {attempt} failed: {result.get('message')}")
+                        last_exception = None
+                        if attempt < MAX_RETRIES:
+                            logger.info(f"Retrying in {RETRY_DELAY}s...")
+                            import time as time_mod
+                            time_mod.sleep(RETRY_DELAY)
+                    except Exception as e:
+                        last_exception = e
+                        logger.warning(f"Attempt {attempt} raised exception: {e}")
+                        if attempt < MAX_RETRIES:
+                            logger.info(f"Retrying in {RETRY_DELAY}s...")
+                            import time as time_mod
+                            time_mod.sleep(RETRY_DELAY)
+
+                if result is None and last_exception is not None:
+                    raise last_exception
 
                 logger.info(f"Result: {result}")
 
@@ -285,7 +346,7 @@ class FichadorScheduler:
                             action_names = {"start": "Fichaje", "pause": "Pausa", "stop": "Finalizar"}
                             loop.run_until_complete(
                                 telegram_bot.send_notification(
-                                    f"⚠️ *Sesión expirada*\n\n"
+                                    f"⚠️ *Sesion expirada*\n\n"
                                     f"{action_names.get(action, action)} no completado. "
                                     f"Se necesita re-login en Holded."
                                 )
@@ -293,13 +354,13 @@ class FichadorScheduler:
                     except:
                         pass
                 else:
-                    logger.error(f"Live tracking {action} failed: {result.get('message')}")
+                    logger.error(f"Live tracking {action} failed after {MAX_RETRIES} attempts: {result.get('message')}")
                     try:
                         from app.services.telegram_bot import telegram_bot
                         if telegram_bot.is_running:
                             loop.run_until_complete(
                                 telegram_bot.send_notification(
-                                    f"❌ *Error en {action}*\n\n{result.get('message', 'Error desconocido')}"
+                                    f"❌ *Error en {action}* (tras {MAX_RETRIES} intentos)\n\n{result.get('message', 'Error desconocido')}"
                                 )
                             )
                     except:
@@ -309,6 +370,21 @@ class FichadorScheduler:
 
         except Exception as e:
             logger.error(f"Error executing live tracking {action}: {e}", exc_info=True)
+            try:
+                from app.services.telegram_bot import telegram_bot
+                if telegram_bot.is_running:
+                    loop_n = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop_n)
+                    try:
+                        loop_n.run_until_complete(
+                            telegram_bot.send_notification(
+                                f"❌ *Error critico en {action}*\n\n{str(e)}"
+                            )
+                        )
+                    finally:
+                        loop_n.close()
+            except:
+                pass
 
     def _execute_fichaje(self, fichaje_type: str = 'entry', entry_time: time = None, exit_time: time = None):
         """Execute a fichaje (legacy method, kept for compatibility)."""
