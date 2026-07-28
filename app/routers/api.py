@@ -332,6 +332,12 @@ async def update_schedule(schedule_id: str, schedule: WorkScheduleUpdate):
     existing.update(update_data)
     existing["updated_at"] = datetime.now().isoformat()
     result = save_schedule(existing)
+
+    # Reload scheduler
+    from app.services.scheduler import scheduler
+    if scheduler.is_running:
+        scheduler._load_all_schedules()
+
     return result
 
 

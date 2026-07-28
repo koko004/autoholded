@@ -203,16 +203,6 @@ class FichadorScheduler:
                 logger.info("Today is not a workday, skipping")
                 return
 
-            config = get_config()
-            email = config.get("holded_email") or settings.HOLDED_EMAIL
-            password = config.get("holded_password") or settings.HOLDED_PASSWORD
-
-            if not email or not password:
-                logger.error("Holded credentials not configured in config.json or .env")
-                return
-
-            logger.info(f"Credentials found for: {email}")
-
             # Check session validity before starting browser
             fichador = self._get_fichador()
             logger.info(f"Fichador headless mode: {fichador.headless}")
@@ -260,7 +250,7 @@ class FichadorScheduler:
 
                     # Save attendance record
                     try:
-                        from app.services.storage import save_attendance, get_schedule
+                        from app.services.storage import save_attendance
                         from datetime import date as date_cls
                         today = date_cls.today().isoformat()
                         now = datetime.now()
