@@ -5,8 +5,10 @@ from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
 from app.services.storage import get_config
+from app.config import settings
 
 templates = Jinja2Templates(directory=Path(__file__).parent.parent / "templates")
+templates.env.globals["version"] = settings.APP_VERSION
 
 router = APIRouter()
 
