@@ -125,6 +125,13 @@ let events = [];
 let schedules = [];
 let contextMenuDate = null;
 
+function formatLocalDate(d) {
+    var year = d.getFullYear();
+    var month = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return year + '-' + month + '-' + day;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     renderCalendar();
     loadEvents();
@@ -220,7 +227,7 @@ async function loadSchedules() {
 
 function renderEventsList() {
     var container = document.getElementById('events-list');
-    var today = new Date().toISOString().split('T')[0];
+    var today = formatLocalDate(new Date());
     var upcomingEvents = events
         .filter(function(e) { return e.event_date >= today && e.event_type !== 'schedule_assignment'; })
         .sort(function(a, b) { return new Date(a.event_date) - new Date(b.event_date); })
@@ -308,7 +315,7 @@ async function clearAssignment() {
 function openWeekModal() {
     var today = new Date();
     var dateInput = document.getElementById('week-date');
-    dateInput.value = today.toISOString().split('T')[0];
+    dateInput.value = formatLocalDate(today);
     
     updateWeekRange();
     loadWeekSchedules();
@@ -360,7 +367,7 @@ async function assignWeek(scheduleId, scheduleName) {
     var monday = new Date(selected);
     monday.setDate(selected.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
     
-    var weekStart = monday.toISOString().split('T')[0];
+    var weekStart = formatLocalDate(monday);
     
     try {
         var response = await fetch('/api/calendar/assign-week', {
@@ -385,7 +392,7 @@ async function assignWeek(scheduleId, scheduleName) {
 
 function openModal() {
     document.getElementById('event-modal').style.display = 'flex';
-    document.getElementById('event-date').value = currentDate.toISOString().split('T')[0];
+    document.getElementById('event-date').value = formatLocalDate(currentDate);
 }
 
 function closeModal() {

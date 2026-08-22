@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     
     # Application
     APP_NAME: str = "Fichador Holded"
-    APP_VERSION: str = "1.5.2"
+    APP_VERSION: str = "1.5.3"
     DEBUG: bool = False
     
     # Server

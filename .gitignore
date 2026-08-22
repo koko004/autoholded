@@ -54,3 +54,5 @@ playwright-report/
 
 # Mypy
 .mypy_cache/
+cookies.txt
+cookies2.txt
