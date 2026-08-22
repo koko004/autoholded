@@ -18,7 +18,7 @@ from app.services.fichador import fichador
 from app.services.storage import (
     get_schedules, get_schedule, save_schedule, delete_schedule,
     get_config, save_config, get_attendance as storage_get_attendance, save_attendance,
-    get_calendar_events as storage_get_calendar_events, save_calendar_event, delete_calendar_event,
+    get_calendar_events as storage_get_calendar_events, save_calendar_event, delete_calendar_event as storage_delete_calendar_event,
     save_schedule_assignment, delete_schedule_assignment
 )
 from app.config import settings
@@ -392,7 +392,7 @@ async def create_calendar_event(event: CalendarEventCreate):
 
 @router.delete("/calendar/{event_id}", dependencies=[Depends(verify_api_key)])
 async def delete_calendar_event(event_id: str):
-    delete_calendar_event(event_id)
+    storage_delete_calendar_event(event_id)
     return MessageResponse(message="Event deleted")
 
 
