@@ -440,63 +440,97 @@ body {
     to { transform: translateY(-50%) rotate(360deg); }
 }
 
-/* Floating Log Terminal */
+/* Floating Log Terminal - macOS Style */
 .log-terminal-toggle {
     position: fixed;
     bottom: 24px;
     right: 24px;
     width: 48px;
     height: 48px;
-    border-radius: 50%;
-    background: #1a1a2e;
+    border-radius: 14px;
+    background: linear-gradient(145deg, #2d2d2d, #1a1a1a);
     color: #4ade80;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.05);
     z-index: 9999;
     transition: transform 0.2s, box-shadow 0.2s;
-    border: 2px solid #4ade80;
+    border: 1px solid rgba(255,255,255,0.08);
 }
 
 .log-terminal-toggle:hover {
-    transform: scale(1.1);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    transform: scale(1.08);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255,255,255,0.08);
 }
 
 .log-terminal {
     position: fixed;
     bottom: 24px;
     right: 24px;
-    width: 550px;
-    height: 380px;
-    background: #1a1a2e;
-    border-radius: 10px;
+    width: 600px;
+    height: 400px;
+    background: #1e1e1e;
+    border-radius: 12px;
     display: flex;
     flex-direction: column;
     z-index: 10000;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    border: 1px solid #333;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.06);
     overflow: hidden;
     font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Menlo', 'Consolas', monospace;
 }
 
 .log-terminal-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 10px 14px;
-    background: #16213e;
-    border-bottom: 1px solid #333;
+    padding: 0 14px;
+    height: 38px;
+    min-height: 38px;
+    background: linear-gradient(180deg, #3a3a3a 0%, #2d2d2d 100%);
+    border-bottom: 1px solid #1a1a1a;
     cursor: move;
     user-select: none;
 }
 
+.log-terminal-traffic-lights {
+    display: flex;
+    gap: 8px;
+    margin-right: 14px;
+}
+
+.traffic-light {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: filter 0.15s;
+    border: 0.5px solid rgba(0,0,0,0.2);
+}
+
+.traffic-light.red {
+    background: linear-gradient(180deg, #ff5f57 0%, #e33e32 100%);
+}
+
+.traffic-light.yellow {
+    background: linear-gradient(180deg, #febc2e 0%, #e5a00d 100%);
+}
+
+.traffic-light.green {
+    background: linear-gradient(180deg, #28c840 0%, #1aab29 100%);
+}
+
+.traffic-light:hover {
+    filter: brightness(1.15);
+}
+
 .log-terminal-title {
-    color: #e2e8f0;
+    color: #b0b0b0;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 500;
+    flex: 1;
+    text-align: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .log-terminal-controls {
@@ -507,7 +541,8 @@ body {
 
 .log-terminal-status {
     font-size: 11px;
-    color: #94a3b8;
+    color: #666;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .log-terminal-status.connected {
@@ -521,64 +556,70 @@ body {
 .log-terminal-btn {
     background: none;
     border: none;
-    color: #94a3b8;
+    color: #888;
     cursor: pointer;
-    font-size: 16px;
-    padding: 2px 6px;
+    padding: 4px;
     border-radius: 4px;
-    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     transition: background 0.15s, color 0.15s;
 }
 
 .log-terminal-btn:hover {
     background: rgba(255, 255, 255, 0.1);
-    color: #e2e8f0;
+    color: #e0e0e0;
 }
 
 .log-terminal-body {
     flex: 1;
     overflow-y: auto;
-    padding: 10px 14px;
-    background: #0f0f23;
-    font-size: 12px;
-    line-height: 1.5;
-    color: #e2e8f0;
+    padding: 12px 16px;
+    background: #0a0a0a;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: #d4d4d4;
 }
 
 .log-terminal-body::-webkit-scrollbar {
-    width: 6px;
+    width: 8px;
 }
 
 .log-terminal-body::-webkit-scrollbar-track {
-    background: #0f0f23;
+    background: #0a0a0a;
 }
 
 .log-terminal-body::-webkit-scrollbar-thumb {
-    background: #333;
-    border-radius: 3px;
+    background: #444;
+    border-radius: 4px;
+}
+
+.log-terminal-body::-webkit-scrollbar-thumb:hover {
+    background: #555;
 }
 
 .log-terminal-line {
     white-space: pre-wrap;
     word-break: break-all;
     padding: 1px 0;
+    font-variant-ligatures: none;
 }
 
 .log-ts {
-    color: #64748b;
+    color: #606060;
 }
 
 .log-level {
     font-weight: 600;
 }
 
-.log-info .log-level { color: #60a5fa; }
-.log-warning .log-level { color: #fbbf24; }
-.log-error .log-level { color: #f87171; }
-.log-debug .log-level { color: #a78bfa; }
+.log-info .log-level { color: #61afef; }
+.log-warning .log-level { color: #e5c07b; }
+.log-error .log-level { color: #e06c75; }
+.log-debug .log-level { color: #c678dd; }
 
 .log-module {
-    color: #4ade80;
+    color: #98c379;
 }
 
 @media (max-width: 640px) {
@@ -587,6 +628,7 @@ body {
         height: 50vh;
         bottom: 8px;
         right: 8px;
+        border-radius: 10px;
     }
     .log-terminal-toggle {
         bottom: 16px;

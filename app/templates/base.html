@@ -48,11 +48,17 @@
     </div>
     <div id="log-terminal" class="log-terminal" style="display: none;">
         <div class="log-terminal-header" id="log-terminal-drag">
-            <span class="log-terminal-title">Logs en vivo</span>
+            <div class="log-terminal-traffic-lights">
+                <span class="traffic-light red" id="log-terminal-close" title="Cerrar"></span>
+                <span class="traffic-light yellow" id="log-terminal-minimize" title="Minimizar"></span>
+                <span class="traffic-light green" id="log-terminal-maximize" title="Maximizar"></span>
+            </div>
+            <span class="log-terminal-title">autoholded — logs</span>
             <div class="log-terminal-controls">
                 <span id="log-terminal-status" class="log-terminal-status">Conectando...</span>
-                <button class="log-terminal-btn" id="log-terminal-clear" title="Limpiar">&#128465;</button>
-                <button class="log-terminal-btn" id="log-terminal-minimize" title="Minimizar">&#8722;</button>
+                <button class="log-terminal-btn" id="log-terminal-clear" title="Limpiar">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
+                </button>
             </div>
         </div>
         <div class="log-terminal-body" id="log-terminal-body"></div>
@@ -67,11 +73,14 @@
         var dragHandle = document.getElementById('log-terminal-drag');
         var clearBtn = document.getElementById('log-terminal-clear');
         var minimizeBtn = document.getElementById('log-terminal-minimize');
+        var closeBtn = document.getElementById('log-terminal-close');
+        var maximizeBtn = document.getElementById('log-terminal-maximize');
         var statusEl = document.getElementById('log-terminal-status');
         var evtSource = null;
         var isOpen = false;
         var isDragging = false;
-        var dragX, dragY;
+        var isMaximized = false;
+        var dragX, dragY, prevRect;
 
         toggle.addEventListener('click', function() {
             isOpen = !isOpen;
@@ -80,10 +89,38 @@
             if (isOpen && !evtSource) connectSSE();
         });
 
+        closeBtn.addEventListener('click', function() {
+            isOpen = false;
+            terminal.style.display = 'none';
+            toggle.style.display = 'flex';
+        });
+
         minimizeBtn.addEventListener('click', function() {
             isOpen = false;
             terminal.style.display = 'none';
             toggle.style.display = 'flex';
+        });
+
+        maximizeBtn.addEventListener('click', function() {
+            if (!isMaximized) {
+                prevRect = { w: terminal.style.width, h: terminal.style.height, t: terminal.style.top, l: terminal.style.left, r: terminal.style.right, b: terminal.style.bottom };
+                terminal.style.width = '100vw';
+                terminal.style.height = '100vh';
+                terminal.style.top = '0';
+                terminal.style.left = '0';
+                terminal.style.right = 'auto';
+                terminal.style.bottom = 'auto';
+                terminal.style.borderRadius = '0';
+            } else {
+                terminal.style.width = prevRect.w || '';
+                terminal.style.height = prevRect.h || '';
+                terminal.style.top = prevRect.t || '';
+                terminal.style.left = prevRect.l || '';
+                terminal.style.right = prevRect.r || '24px';
+                terminal.style.bottom = prevRect.b || '24px';
+                terminal.style.borderRadius = '12px';
+            }
+            isMaximized = !isMaximized;
         });
 
         clearBtn.addEventListener('click', function() {
@@ -91,6 +128,7 @@
         });
 
         dragHandle.addEventListener('mousedown', function(e) {
+            if (e.target.closest('.traffic-light') || e.target.closest('.log-terminal-btn')) return;
             isDragging = true;
             dragX = e.clientX - terminal.offsetLeft;
             dragY = e.clientY - terminal.offsetTop;
