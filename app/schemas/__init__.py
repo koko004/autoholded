@@ -28,6 +28,8 @@ class UserConfigUpdate(BaseModel):
     holded_password: Optional[str] = None
     timezone: Optional[str] = None
     notifications: Optional[Dict[str, Any]] = None
+    dashboard_username: Optional[str] = None
+    dashboard_password: Optional[str] = None
 
 
 # === Work Schedule Schemas ===
@@ -111,8 +113,8 @@ class WorkDayResponse(WorkDayBase):
 # === Calendar Event Schemas ===
 class CalendarEventBase(BaseModel):
     event_date: date
-    event_type: str = Field(..., pattern="^(holiday|vacation|special_schedule)$")
-    schedule_id: Optional[int] = None
+    event_type: str = Field(..., pattern="^(holiday|vacation|special_schedule|schedule_assignment)$")
+    schedule_id: Optional[str] = None
     description: Optional[str] = None
 
 

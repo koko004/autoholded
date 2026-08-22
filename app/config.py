@@ -9,19 +9,18 @@ class Settings(BaseSettings):
     
     # Application
     APP_NAME: str = "Fichador Holded"
-    APP_VERSION: str = "1.4.4"
+    APP_VERSION: str = "1.5.2"
     DEBUG: bool = False
     
     # Server
     HOST: str = "0.0.0.0"
-    PORT: int = 8000
-    
-    # Database
-    DATABASE_URL: str = "sqlite+aiosqlite:///./data/fichador.db"
+    PORT: int = 8002
     
     # Security
     SECRET_KEY: str = "change-this-to-a-random-secret-key"
     API_KEY: Optional[str] = None
+    DASHBOARD_USERNAME: str = "admin"
+    DASHBOARD_PASSWORD: Optional[str] = None
     
     # Timezone
     TZ: str = "Europe/Madrid"
@@ -63,6 +62,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True
+        extra = "ignore"
 
 
 settings = Settings()

@@ -247,7 +247,7 @@ class TelegramBotService:
                         config = get_config()
                         config["telegram_screenshot_mode"] = args[0]
                         save_config(config)
-                    except:
+                    except Exception:
                         pass
                 else:
                     await update.message.reply_text(

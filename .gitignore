@@ -43,9 +43,14 @@ docker-compose.override.yml
 .playwright-mcp/
 opencode.json
 .opencodeignore
-AGENTS.md
 
 # Playwright
 .playwright/
 test-results/
 playwright-report/
+
+# Ruff
+.ruff_cache/
+
+# Mypy
+.mypy_cache/

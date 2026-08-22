@@ -7,7 +7,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.config import settings
-from app.services.storage import get_schedules, get_schedule, get_config
+from app.services.storage import (
+    get_schedules, get_schedule, get_config, get_schedule_assignment
+)
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +188,7 @@ class FichadorScheduler:
                 parts = time_str.split(":")
                 return time(int(parts[0]), int(parts[1]))
             return time_str
-        except:
+        except (ValueError, TypeError):
             return None
 
     def _execute_live_tracking(self, action: str = 'start', schedule_id: str = None):
@@ -194,6 +196,11 @@ class FichadorScheduler:
 
         This runs in a thread executor (from APScheduler). We create a new
         event loop for the async Playwright operations.
+        
+        Schedule resolution order:
+        1. Check calendar for schedule_assignment for today
+        2. If found, use that schedule
+        3. If not found, use the schedule_id passed as parameter
         """
         logger.info(f"=== SCHEDULER JOB FIRED: action={action}, schedule_id={schedule_id} ===")
 
@@ -201,9 +208,20 @@ class FichadorScheduler:
         RETRY_DELAY = 5
 
         try:
+            # First, check if there's a calendar assignment for today
+            today_str = date.today().isoformat()
+            assignment = get_schedule_assignment(today_str)
+            
+            effective_schedule_id = schedule_id
+            if assignment:
+                assigned_id = assignment.get("schedule_id")
+                if assigned_id:
+                    effective_schedule_id = assigned_id
+                    logger.info(f"Using schedule from calendar assignment: {assigned_id} ({assignment.get('description')})")
+            
             schedule = None
-            if schedule_id:
-                schedule = get_schedule(schedule_id)
+            if effective_schedule_id:
+                schedule = get_schedule(effective_schedule_id)
                 logger.info(f"Schedule loaded: {schedule.get('name') if schedule else 'NOT FOUND'}")
 
             if not self._is_workday(schedule):
@@ -351,7 +369,7 @@ class FichadorScheduler:
                                     f"Se necesita re-login en Holded."
                                 )
                             )
-                    except:
+                    except Exception:
                         pass
                 else:
                     logger.error(f"Live tracking {action} failed after {MAX_RETRIES} attempts: {result.get('message')}")
@@ -363,7 +381,7 @@ class FichadorScheduler:
                                     f"❌ *Error en {action}* (tras {MAX_RETRIES} intentos)\n\n{result.get('message', 'Error desconocido')}"
                                 )
                             )
-                    except:
+                    except Exception:
                         pass
             finally:
                 loop.close()
@@ -383,7 +401,7 @@ class FichadorScheduler:
                         )
                     finally:
                         loop_n.close()
-            except:
+            except Exception:
                 pass
 
     def _execute_fichaje(self, fichaje_type: str = 'entry', entry_time: time = None, exit_time: time = None):

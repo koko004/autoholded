@@ -123,7 +123,7 @@ class HoldedFichador:
                 f.unlink()
             if DEBUG_MANIFEST.exists():
                 DEBUG_MANIFEST.unlink()
-        except:
+        except (IOError, OSError):
             pass
 
     def get_debug_steps(self) -> list:
@@ -267,7 +267,7 @@ class HoldedFichador:
             session_data = json.loads(SESSION_FILE.read_text())
             saved_at = datetime.fromisoformat(session_data.get("saved_at", ""))
             return (datetime.now() - saved_at).total_seconds() < 604800  # 7 days
-        except:
+        except (json.JSONDecodeError, ValueError):
             return False
 
     def get_auth_status(self) -> dict:
@@ -364,7 +364,7 @@ class HoldedFichador:
                         logger.info(f"Email filled (selector: {name})")
                         break
                     email_input = None
-                except:
+                except Exception:
                     email_input = None
 
             if not email_input:
@@ -387,7 +387,7 @@ class HoldedFichador:
                         logger.info(f"Password filled (selector: {name})")
                         break
                     password_input = None
-                except:
+                except Exception:
                     password_input = None
 
             if not password_input:
@@ -406,7 +406,7 @@ class HoldedFichador:
                         login_clicked = True
                         logger.info(f"Clicked login button ({name})")
                         break
-                except:
+                except Exception:
                     continue
 
             if not login_clicked:
@@ -499,7 +499,7 @@ class HoldedFichador:
             self.auth_error = str(e)
             try:
                 await self.stop(save_session=False)
-            except:
+            except Exception:
                 pass
             return {"status": "error", "message": str(e)}
 
@@ -581,7 +581,7 @@ class HoldedFichador:
                         digit_inputs.append(digit_input)
                     else:
                         break
-                except:
+                except Exception:
                     break
 
             if len(digit_inputs) < 6:
@@ -633,7 +633,7 @@ class HoldedFichador:
                 current_url = self.page.url
                 if '/login' not in current_url and ('myzone' in current_url or 'dashboard' in current_url):
                     return True
-            except:
+            except Exception:
                 pass
 
             # Fallback: navigate directly to myzone
@@ -643,7 +643,7 @@ class HoldedFichador:
                 current_url = self.page.url
                 if '/login' not in current_url and ('myzone' in current_url or 'dashboard' in current_url):
                     return True
-            except:
+            except Exception:
                 pass
 
             logger.warning(f"2FA submit: still on URL {self.page.url}")
@@ -670,7 +670,7 @@ class HoldedFichador:
                         if text and len(text.strip()) > 0:
                             logger.warning(f"Found error element: {sel} -> {text[:100]}")
                             return True
-                except:
+                except Exception:
                     pass
 
             # Check for specific error text patterns (not just 'error' substring)
@@ -680,7 +680,7 @@ class HoldedFichador:
                 if pattern.lower() in body_text.lower():
                     logger.warning(f"Found error pattern in body: {pattern}")
                     return True
-        except:
+        except Exception:
             pass
         return False
 
@@ -719,7 +719,7 @@ class HoldedFichador:
                                 continue
                             logger.warning(f"Holded error notification ({sel}): {text.strip()[:200]}")
                             return text.strip()
-                except:
+                except Exception:
                     pass
 
             # Also check body text for common Holded error patterns
@@ -757,7 +757,7 @@ class HoldedFichador:
                     await asyncio.sleep(3)
                     logger.info("Clicked 'Control horario' button")
                     return True
-            except:
+            except Exception:
                 pass
 
             # Fallback: direct URL
@@ -833,7 +833,7 @@ class HoldedFichador:
             try:
                 await self.page.keyboard.press("Escape")
                 await asyncio.sleep(0.5)
-            except:
+            except Exception:
                 pass
 
     # ============================================================
@@ -925,7 +925,7 @@ class HoldedFichador:
                     await btn.click()
                     logger.info(f"Clicked play button via aria-label: {name}")
                     return True
-            except:
+            except Exception:
                 pass
 
         logger.error("All play button strategies failed")
@@ -1085,7 +1085,7 @@ class HoldedFichador:
                     await btn.click()
                     logger.info(f"Clicked pause button via aria-label: {name}")
                     return True
-            except:
+            except Exception:
                 pass
 
         logger.error("All pause button strategies failed")
@@ -1130,7 +1130,7 @@ class HoldedFichador:
                     await confirm_btn.click()
                     await asyncio.sleep(2)
                     logger.info("Clicked 'Sí, he terminado' confirmation")
-            except:
+            except Exception:
                 pass
 
             await self._async_debug_screenshot("Despues de Stop", "after_stop")
@@ -1188,7 +1188,7 @@ class HoldedFichador:
                     await btn.click()
                     logger.info(f"Clicked stop button via aria-label: {name}")
                     return True
-            except:
+            except Exception:
                 pass
 
         logger.error("All stop button strategies failed")
@@ -1234,7 +1234,7 @@ class HoldedFichador:
                 control_btn = self.page.get_by_role("button", name="Control horario")
                 await control_btn.click()
                 await asyncio.sleep(3)
-            except:
+            except Exception:
                 if not await self.navigate_to_time_control():
                     await self.stop()
                     return {"status": "error", "message": "No se pudo navegar a Control horario"}
@@ -1283,7 +1283,7 @@ class HoldedFichador:
                 accept_btn = self.page.get_by_role("button", name="Aceptar")
                 await accept_btn.click()
                 await asyncio.sleep(4)
-            except:
+            except Exception:
                 logger.warning("Could not find Aceptar button")
 
             await self._async_debug_screenshot("Despues de Aceptar", "after_accept")
@@ -1434,10 +1434,10 @@ class HoldedFichador:
                         if await save_btn2.count() > 0:
                             await save_btn2.click()
                             await asyncio.sleep(3)
-                    except:
+                    except Exception:
                         pass
                     logger.info("Clicked 'Guardar' button")
-            except:
+            except Exception:
                 logger.warning("Could not find Guardar button")
 
             await self._async_debug_screenshot("Despues de Guardar", "after_save")
@@ -1490,7 +1490,7 @@ class HoldedFichador:
                         await row.first.click()
                         logger.info(f"Clicked fichaje entry with text: {txt}")
                         return True
-                except:
+                except Exception:
                     continue
 
             logger.warning(f"Could not find fichaje entry for {target_date}")
@@ -1553,7 +1553,7 @@ class HoldedFichador:
                         if await add_franja_btn.count() > 0:
                             await add_franja_btn.click()
                             await asyncio.sleep(0.5)
-                    except:
+                    except Exception:
                         pass
 
                 # Set the row type
@@ -1698,7 +1698,7 @@ class HoldedFichador:
                     if "Sin definir" in text:
                         location_combobox = cb
                         break
-                except:
+                except Exception:
                     continue
 
             if not location_combobox:
@@ -1719,7 +1719,7 @@ class HoldedFichador:
                         logger.info(f"Selected '{location}' from listbox")
                         await asyncio.sleep(0.5)
                         return True
-            except:
+            except Exception:
                 pass
 
             # Try option role
@@ -1730,7 +1730,7 @@ class HoldedFichador:
                     logger.info(f"Selected '{location}' from option role")
                     await asyncio.sleep(0.5)
                     return True
-            except:
+            except Exception:
                 pass
 
             # Fallback: any visible element with the location text
@@ -1741,7 +1741,7 @@ class HoldedFichador:
                     logger.info(f"Selected '{location}' via text")
                     await asyncio.sleep(0.5)
                     return True
-            except:
+            except Exception:
                 pass
 
             await self.page.keyboard.press("Escape")
@@ -1752,7 +1752,7 @@ class HoldedFichador:
             logger.error(f"Failed to set location: {e}")
             try:
                 await self.page.keyboard.press("Escape")
-            except:
+            except Exception:
                 pass
             return False
 
@@ -1770,7 +1770,7 @@ class HoldedFichador:
                         add_franja_btn = self.page.get_by_role("button", name="Añadir franja")
                         await add_franja_btn.click()
                         await asyncio.sleep(0.5)
-                    except:
+                    except Exception:
                         add_franja_btn = await self.page.query_selector('button:has-text("Añadir franja")')
                         if add_franja_btn:
                             await add_franja_btn.click()
@@ -1822,7 +1822,7 @@ class HoldedFichador:
             logger.warning(f"Could not set row type to Pausa: {e}")
             try:
                 await self.page.keyboard.press("Escape")
-            except:
+            except Exception:
                 pass
             return False
 
@@ -1874,7 +1874,7 @@ class HoldedFichador:
             if '/login' in current_url:
                 return False
             return 'myzone' in current_url or 'dashboard' in current_url
-        except:
+        except Exception:
             return False
 
     async def fichar(

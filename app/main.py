@@ -39,22 +39,22 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Failed to auto-start scheduler: {e}")
 
-    # Auto-start Telegram bot if configured
-    from app.services.telegram_bot import telegram_bot
-    try:
-        from app.services.storage import get_config
-        tg_config = get_config()
-        tg_token = tg_config.get("telegram_token") or settings.TELEGRAM_BOT_TOKEN
-        tg_chat_id = tg_config.get("telegram_chat_id") or settings.TELEGRAM_CHAT_ID
-        tg_enabled = tg_config.get("telegram_enabled", settings.TELEGRAM_ENABLED)
-        tg_mode = tg_config.get("telegram_screenshot_mode", settings.TELEGRAM_SCREENSHOT_MODE)
-
-        if tg_enabled and tg_token and tg_chat_id:
-            telegram_bot.configure(tg_token, tg_chat_id, tg_mode)
-            await telegram_bot.start()
-            print("Telegram bot auto-started")
-    except Exception as e:
-        print(f"Failed to auto-start Telegram bot: {e}")
+    # Auto-start Telegram bot if configured (disabled for testing)
+    # from app.services.telegram_bot import telegram_bot
+    # try:
+    #     from app.services.storage import get_config
+    #     tg_config = get_config()
+    #     tg_token = tg_config.get("telegram_token") or settings.TELEGRAM_BOT_TOKEN
+    #     tg_chat_id = tg_config.get("telegram_chat_id") or settings.TELEGRAM_CHAT_ID
+    #     tg_enabled = tg_config.get("telegram_enabled", settings.TELEGRAM_ENABLED)
+    #     tg_mode = tg_config.get("telegram_screenshot_mode", settings.TELEGRAM_SCREENSHOT_MODE)
+    #
+    #     if tg_enabled and tg_token and tg_chat_id:
+    #         telegram_bot.configure(tg_token, tg_chat_id, tg_mode)
+    #         await telegram_bot.start()
+    #         print("Telegram bot auto-started")
+    # except Exception as e:
+    #     print(f"Failed to auto-start Telegram bot: {e}")
 
     yield
 
@@ -62,14 +62,14 @@ async def lifespan(app: FastAPI):
     from app.services.scheduler import scheduler
     try:
         await scheduler.stop()
-    except:
+    except Exception:
         pass
 
-    from app.services.telegram_bot import telegram_bot
-    try:
-        await telegram_bot.stop()
-    except:
-        pass
+    # from app.services.telegram_bot import telegram_bot
+    # try:
+    #     await telegram_bot.stop()
+    # except Exception:
+    #     pass
 
     print("Shutting down...")
 

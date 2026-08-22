@@ -41,11 +41,11 @@ RUN mkdir -p data logs config
 RUN chmod +x entrypoint.sh
 
 # Expose port
-EXPOSE 8000
+EXPOSE 8002
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8000/health')" || exit 1
+    CMD python -c "import httpx; httpx.get('http://localhost:8002/health')" || exit 1
 
 # Run via entrypoint (starts Xvfb + uvicorn)
 ENTRYPOINT ["./entrypoint.sh"]

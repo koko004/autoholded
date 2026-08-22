@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Iniciar Sesión - Fichador Holded{% endblock %}
+
+{% block navbar %}{% endblock %}
+
+{% block content %}
+<div class="login-container" style="max-width: 420px; margin: 4rem auto;">
+    <div class="card">
+        <div style="text-align: center; margin-bottom: 1.5rem;">
+            <img src="/static/img/logo.png" alt="AutoHolded" style="height: 64px; width: auto;">
+        </div>
+        <h2 style="text-align: center; margin-bottom: 0.5rem;">Iniciar Sesión</h2>
+        <p class="card-subtitle" style="text-align: center; margin-bottom: 1.5rem; color: var(--text-secondary);">Acceso al Dashboard de AutoHolded</p>
+        
+        {% if error %}
+        <div class="alert alert-danger" style="background-color: #fee2e2; color: #dc2626; padding: 0.75rem; border-radius: var(--radius); margin-bottom: 1rem; font-size: 0.9rem; text-align: center;">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <form action="/login" method="POST" class="login-form">
+            <div class="form-group" style="margin-bottom: 1rem;">
+                <label for="username" style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Usuario</label>
+                <input type="text" id="username" name="username" class="form-control" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius);" required placeholder="admin" value="{{ username or '' }}">
+            </div>
+            
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+                <label for="password" style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Contraseña</label>
+                <input type="password" id="password" name="password" class="form-control" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius);" required placeholder="••••••••">
+            </div>
+
+            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.75rem; font-size: 1rem; font-weight: 600; cursor: pointer;">
+                Ingresar
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

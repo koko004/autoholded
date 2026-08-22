@@ -81,6 +81,26 @@
             </div>
         </div>
 
+        <!-- Dashboard Authentication -->
+        <div class="card">
+            <h2>Autenticación del Dashboard</h2>
+            <p class="card-subtitle">Configura el acceso a la interfaz web. Si dejas la contraseña vacía, no se requerirá login.</p>
+            <form id="dashboard-auth-form">
+                <div class="form-group">
+                    <label for="dashboard_username">Usuario</label>
+                    <input type="text" id="dashboard_username" name="dashboard_username" class="form-control" 
+                           value="{{ config.dashboard_username if config else 'admin' }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="dashboard_password">Contraseña (opcional)</label>
+                    <input type="password" id="dashboard_password" name="dashboard_password" class="form-control" 
+                           placeholder="Dejar vacío para desactivar login">
+                </div>
+                <button type="submit" class="btn btn-primary">Guardar</button>
+            </form>
+            <div id="dashboard-auth-result" style="display: none; margin-top: 0.5rem;"></div>
+        </div>
+
         <!-- Telegram Bot (moved up) -->
         <div class="card">
             <h2>Bot de Telegram</h2>
@@ -167,6 +187,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btn-test-tg').addEventListener('click', testTelegram);
     document.getElementById('btn-logout').addEventListener('click', handleLogout);
     document.getElementById('btn-check-session').addEventListener('click', handleCheckSession);
+    document.getElementById('dashboard-auth-form').addEventListener('submit', saveDashboardAuth);
     loadTelegramConfig();
 });
 
@@ -525,6 +546,39 @@ async function saveTelegram(e) {
         }
     } catch (error) {
         showNotification('Error al guardar', 'error');
+    }
+}
+
+async function saveDashboardAuth(e) {
+    e.preventDefault();
+    const username = document.getElementById('dashboard_username').value.trim();
+    const password = document.getElementById('dashboard_password').value;
+    const resultDiv = document.getElementById('dashboard-auth-result');
+
+    try {
+        const res = await fetch('/api/config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                dashboard_username: username,
+                dashboard_password: password
+            })
+        });
+        const result = await res.json();
+        
+        if (result.dashboard_username !== undefined || result.dashboard_password !== undefined) {
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'alert alert-success';
+            resultDiv.innerHTML = '✓ Configuración guardada. Se aplicará en el próximo acceso.';
+        } else {
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'alert alert-danger';
+            resultDiv.innerHTML = '✗ Error al guardar';
+        }
+    } catch (error) {
+        resultDiv.style.display = 'block';
+        resultDiv.className = 'alert alert-danger';
+        resultDiv.innerHTML = '✗ Error de conexión';
     }
 }
 

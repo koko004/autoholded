@@ -19,5 +19,8 @@ fi
 export DISPLAY=:99
 echo "Xvfb started successfully on DISPLAY=:99"
 
-echo "Starting uvicorn..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Get port from environment or default to 8002
+PORT=${PORT:-8002}
+
+echo "Starting uvicorn on port $PORT..."
+exec uvicorn app.main:app --host 0.0.0.0 --port $PORT

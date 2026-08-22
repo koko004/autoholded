@@ -6,7 +6,10 @@
 <div class="calendar-page">
     <div class="page-header">
         <h1>Calendario Laboral</h1>
-        <button class="btn btn-primary" id="btn-add-event">+ Añadir Evento</button>
+        <div class="header-actions">
+            <button class="btn btn-secondary" id="btn-assign-week">Asignar semana</button>
+            <button class="btn btn-primary" id="btn-add-event">+ Añadir Evento</button>
+        </div>
     </div>
     
     <div class="calendar-container">
@@ -27,7 +30,6 @@
                 <div>Dom</div>
             </div>
             <div class="calendar-body" id="calendar-body">
-                <!-- Calendar days will be rendered here -->
             </div>
         </div>
         
@@ -44,22 +46,51 @@
                 <span class="legend-color workday"></span>
                 <span>Día laborable</span>
             </div>
+            <div class="legend-item">
+                <span class="legend-color assigned"></span>
+                <span>Horario asignado</span>
+            </div>
         </div>
     </div>
     
-    <!-- Events List -->
     <div class="card">
-        <h2>Próximos Eventos</h2>
+        <h2>Proximos Eventos</h2>
         <div id="events-list">
             <p>Cargando eventos...</p>
         </div>
     </div>
     
-    <!-- Event Modal -->
+    <div class="context-menu" id="context-menu" style="display: none;">
+        <div class="context-menu-header" id="context-menu-date">Asignar horario</div>
+        <div class="context-menu-items" id="context-menu-schedules"></div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item danger" id="context-menu-clear">Limpiar asignacion</div>
+    </div>
+    
+    <div class="modal" id="week-modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Asignar horario a la semana</h2>
+                <button class="modal-close" id="btn-close-week-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="week-date">Selecciona un dia de la semana</label>
+                    <input type="date" id="week-date" class="form-control">
+                </div>
+                <p class="week-range-text">Semana: <strong id="week-range"></strong></p>
+                <div id="week-schedule-options" class="week-schedule-options"></div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="btn-cancel-week">Cancelar</button>
+            </div>
+        </div>
+    </div>
+    
     <div class="modal" id="event-modal" style="display: none;">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Añadir Evento</h2>
+                <h2>Anadir Evento</h2>
                 <button class="modal-close" id="btn-close-modal">&times;</button>
             </div>
             <form id="event-form">
@@ -76,7 +107,7 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label for="event-description">Descripción</label>
+                    <label for="event-description">Descripcion</label>
                     <input type="text" id="event-description" name="description" class="form-control">
                 </div>
                 <div class="modal-actions">
@@ -91,55 +122,71 @@
 <script>
 let currentDate = new Date();
 let events = [];
+let schedules = [];
+let contextMenuDate = null;
 
 document.addEventListener('DOMContentLoaded', function() {
     renderCalendar();
     loadEvents();
+    loadSchedules();
     
-    document.getElementById('btn-prev-month').addEventListener('click', () => changeMonth(-1));
-    document.getElementById('btn-next-month').addEventListener('click', () => changeMonth(1));
-    document.getElementById('btn-add-event').addEventListener('click', () => openModal());
+    document.getElementById('btn-prev-month').addEventListener('click', function() { changeMonth(-1); });
+    document.getElementById('btn-next-month').addEventListener('click', function() { changeMonth(1); });
+    document.getElementById('btn-add-event').addEventListener('click', function() { openModal(); });
+    document.getElementById('btn-assign-week').addEventListener('click', openWeekModal);
     document.getElementById('btn-close-modal').addEventListener('click', closeModal);
     document.getElementById('btn-cancel').addEventListener('click', closeModal);
     document.getElementById('event-form').addEventListener('submit', saveEvent);
+    document.getElementById('btn-close-week-modal').addEventListener('click', closeWeekModal);
+    document.getElementById('btn-cancel-week').addEventListener('click', closeWeekModal);
+    document.getElementById('context-menu-clear').addEventListener('click', clearAssignment);
+    document.getElementById('week-date').addEventListener('change', updateWeekRange);
+    
+    document.addEventListener('click', closeContextMenu);
 });
 
 function renderCalendar() {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
+    var year = currentDate.getFullYear();
+    var month = currentDate.getMonth();
     
     document.getElementById('current-month').textContent = 
         new Date(year, month).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
     
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const startDay = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
+    var firstDay = new Date(year, month, 1);
+    var lastDay = new Date(year, month + 1, 0);
+    var startDay = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
     
-    let html = '';
+    var html = '';
     
-    // Previous month days
-    const prevMonth = new Date(year, month, 0);
-    for (let i = startDay - 1; i >= 0; i--) {
-        html += `<div class="calendar-day other-month">${prevMonth.getDate() - i}</div>`;
+    var prevMonth = new Date(year, month, 0);
+    for (var i = startDay - 1; i >= 0; i--) {
+        html += '<div class="calendar-day other-month">' + (prevMonth.getDate() - i) + '</div>';
     }
     
-    // Current month days
-    for (let day = 1; day <= lastDay.getDate(); day++) {
-        const date = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
-        const event = events.find(e => e.event_date === date);
+    for (var day = 1; day <= lastDay.getDate(); day++) {
+        var dateStr = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+        var isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
+        var event = events.find(function(e) { return e.event_date === dateStr && e.event_type !== 'schedule_assignment'; });
+        var assignment = events.find(function(e) { return e.event_date === dateStr && e.event_type === 'schedule_assignment'; });
         
-        let className = 'calendar-day';
+        var className = 'calendar-day';
         if (isToday) className += ' today';
-        if (event) className += ` ${event.event_type}`;
+        if (event) className += ' ' + event.event_type;
+        if (assignment) className += ' assigned';
         
-        html += `<div class="${className}" data-date="${date}">${day}</div>`;
+        var assignmentBadge = '';
+        if (assignment) {
+            var schedule = schedules.find(function(s) { return s.id === assignment.schedule_id; });
+            var scheduleName = schedule ? schedule.name : 'Horario';
+            assignmentBadge = '<span class="assignment-badge">' + scheduleName + '</span>';
+        }
+        
+        html += '<div class="' + className + '" data-date="' + dateStr + '" oncontextmenu="showContextMenu(event, \'' + dateStr + '\')">' + day + assignmentBadge + '</div>';
     }
     
-    // Next month days
-    const remaining = 42 - (startDay + lastDay.getDate());
-    for (let day = 1; day <= remaining; day++) {
-        html += `<div class="calendar-day other-month">${day}</div>`;
+    var remaining = 42 - (startDay + lastDay.getDate());
+    for (var day = 1; day <= remaining; day++) {
+        html += '<div class="calendar-day other-month">' + day + '</div>';
     }
     
     document.getElementById('calendar-body').innerHTML = html;
@@ -152,7 +199,7 @@ function changeMonth(delta) {
 
 async function loadEvents() {
     try {
-        const response = await fetch('/api/calendar');
+        var response = await fetch('/api/calendar');
         events = await response.json();
         renderCalendar();
         renderEventsList();
@@ -161,26 +208,179 @@ async function loadEvents() {
     }
 }
 
+async function loadSchedules() {
+    try {
+        var response = await fetch('/api/schedules');
+        schedules = await response.json();
+        renderCalendar();
+    } catch (error) {
+        console.error('Error loading schedules:', error);
+    }
+}
+
 function renderEventsList() {
-    const container = document.getElementById('events-list');
-    const upcomingEvents = events
-        .filter(e => new Date(e.event_date) >= new Date())
-        .sort((a, b) => new Date(a.event_date) - new Date(b.event_date))
+    var container = document.getElementById('events-list');
+    var today = new Date().toISOString().split('T')[0];
+    var upcomingEvents = events
+        .filter(function(e) { return e.event_date >= today && e.event_type !== 'schedule_assignment'; })
+        .sort(function(a, b) { return new Date(a.event_date) - new Date(b.event_date); })
         .slice(0, 5);
     
     if (upcomingEvents.length === 0) {
-        container.innerHTML = '<p>No hay próximos eventos</p>';
+        container.innerHTML = '<p>No hay proximos eventos</p>';
         return;
     }
     
-    container.innerHTML = upcomingEvents.map(event => `
-        <div class="event-item">
-            <span class="event-date">${new Date(event.event_date).toLocaleDateString('es-ES')}</span>
-            <span class="event-type badge badge-${event.event_type}">${event.event_type}</span>
-            <span class="event-description">${event.description || ''}</span>
-            <button class="btn btn-danger btn-sm" onclick="deleteEvent('${event.id}')">×</button>
-        </div>
-    `).join('');
+    container.innerHTML = upcomingEvents.map(function(event) {
+        return '<div class="event-item">' +
+            '<span class="event-date">' + new Date(event.event_date).toLocaleDateString('es-ES') + '</span>' +
+            '<span class="event-type badge badge-' + event.event_type + '">' + event.event_type + '</span>' +
+            '<span class="event-description">' + (event.description || '') + '</span>' +
+            '<button class="btn btn-danger btn-sm" onclick="deleteEvent(\'' + event.id + '\')">&#215;</button>' +
+        '</div>';
+    }).join('');
+}
+
+function showContextMenu(e, dateStr) {
+    e.preventDefault();
+    contextMenuDate = dateStr;
+    
+    var menu = document.getElementById('context-menu');
+    var dateObj = new Date(dateStr + 'T12:00:00');
+    document.getElementById('context-menu-date').textContent = 
+        'Asignar horario - ' + dateObj.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+    
+    var container = document.getElementById('context-menu-schedules');
+    if (schedules.length === 0) {
+        container.innerHTML = '<div class="context-menu-item disabled">No hay horarios creados</div>';
+    } else {
+        container.innerHTML = schedules.map(function(s) {
+            return '<div class="context-menu-item" onclick="assignSchedule(\'' + s.id + '\', \'' + s.name.replace(/'/g, "\\'") + '\')">' + s.name + '</div>';
+        }).join('');
+    }
+    
+    menu.style.display = 'block';
+    menu.style.left = e.pageX + 'px';
+    menu.style.top = e.pageY + 'px';
+}
+
+function closeContextMenu() {
+    document.getElementById('context-menu').style.display = 'none';
+}
+
+async function assignSchedule(scheduleId, scheduleName) {
+    closeContextMenu();
+    
+    try {
+        var response = await fetch('/api/calendar/assign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                date: contextMenuDate,
+                schedule_id: scheduleId,
+                schedule_name: scheduleName
+            })
+        });
+        
+        if (response.ok) {
+            loadEvents();
+            showNotification('Horario "' + scheduleName + '" asignado', 'success');
+        }
+    } catch (error) {
+        showNotification('Error al asignar horario', 'error');
+    }
+}
+
+async function clearAssignment() {
+    closeContextMenu();
+    
+    try {
+        var response = await fetch('/api/calendar/assign/' + contextMenuDate, { method: 'DELETE' });
+        if (response.ok) {
+            loadEvents();
+            showNotification('Asignacion eliminada', 'success');
+        }
+    } catch (error) {
+        showNotification('Error al eliminar asignacion', 'error');
+    }
+}
+
+function openWeekModal() {
+    var today = new Date();
+    var dateInput = document.getElementById('week-date');
+    dateInput.value = today.toISOString().split('T')[0];
+    
+    updateWeekRange();
+    loadWeekSchedules();
+    
+    document.getElementById('week-modal').style.display = 'flex';
+}
+
+function updateWeekRange() {
+    var dateStr = document.getElementById('week-date').value;
+    if (!dateStr) return;
+    
+    var parts = dateStr.split('-');
+    var selected = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    var dayOfWeek = selected.getDay();
+    var monday = new Date(selected);
+    monday.setDate(selected.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    var friday = new Date(monday);
+    friday.setDate(monday.getDate() + 4);
+    
+    document.getElementById('week-range').textContent = 
+        monday.toLocaleDateString('es-ES') + ' - ' + friday.toLocaleDateString('es-ES');
+}
+
+function loadWeekSchedules() {
+    var container = document.getElementById('week-schedule-options');
+    if (schedules.length === 0) {
+        container.innerHTML = '<p>No hay horarios creados</p>';
+    } else {
+        container.innerHTML = schedules.map(function(s) {
+            return '<button class="btn btn-secondary week-schedule-btn" onclick="assignWeek(\'' + s.id + '\', \'' + s.name.replace(/'/g, "\\'") + '\')">' + s.name + '</button>';
+        }).join('');
+    }
+}
+
+function closeWeekModal() {
+    document.getElementById('week-modal').style.display = 'none';
+}
+
+async function assignWeek(scheduleId, scheduleName) {
+    var dateStr = document.getElementById('week-date').value;
+    if (!dateStr) {
+        showNotification('Selecciona una fecha', 'error');
+        return;
+    }
+    
+    var parts = dateStr.split('-');
+    var selected = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    var dayOfWeek = selected.getDay();
+    var monday = new Date(selected);
+    monday.setDate(selected.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    
+    var weekStart = monday.toISOString().split('T')[0];
+    
+    try {
+        var response = await fetch('/api/calendar/assign-week', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                week_start: weekStart,
+                schedule_id: scheduleId,
+                schedule_name: scheduleName
+            })
+        });
+        
+        if (response.ok) {
+            closeWeekModal();
+            loadEvents();
+            showNotification('Horario "' + scheduleName + '" asignado a la semana', 'success');
+        }
+    } catch (error) {
+        showNotification('Error al asignar horario a la semana', 'error');
+    }
 }
 
 function openModal() {
@@ -194,10 +394,10 @@ function closeModal() {
 
 async function saveEvent(e) {
     e.preventDefault();
-    const formData = new FormData(e.target);
+    var formData = new FormData(e.target);
     
     try {
-        const response = await fetch('/api/calendar', {
+        var response = await fetch('/api/calendar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -218,10 +418,10 @@ async function saveEvent(e) {
 }
 
 async function deleteEvent(id) {
-    if (!confirm('¿Eliminar este evento?')) return;
+    if (!confirm('Eliminar este evento?')) return;
     
     try {
-        const response = await fetch(`/api/calendar/${id}`, { method: 'DELETE' });
+        var response = await fetch('/api/calendar/' + id, { method: 'DELETE' });
         if (response.ok) {
             loadEvents();
             showNotification('Evento eliminado', 'success');
@@ -238,6 +438,11 @@ async function deleteEvent(id) {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 2rem;
+}
+
+.header-actions {
+    display: flex;
+    gap: 0.5rem;
 }
 
 .calendar-container {
@@ -278,10 +483,12 @@ async function deleteEvent(id) {
 }
 
 .calendar-day {
-    padding: 0.75rem;
+    padding: 0.5rem;
     text-align: center;
     border: 1px solid var(--border-color);
     min-height: 60px;
+    position: relative;
+    cursor: default;
 }
 
 .calendar-day.other-month {
@@ -303,11 +510,35 @@ async function deleteEvent(id) {
     background: #dbeafe;
 }
 
+.calendar-day.assigned {
+    background: #d1fae5;
+}
+
+.calendar-day.assigned.today {
+    background: #059669;
+}
+
+.assignment-badge {
+    display: block;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #065f46;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.calendar-day.today .assignment-badge {
+    color: white;
+}
+
 .calendar-legend {
     display: flex;
     gap: 1.5rem;
     margin-top: 1rem;
     justify-content: center;
+    flex-wrap: wrap;
 }
 
 .legend-item {
@@ -325,6 +556,7 @@ async function deleteEvent(id) {
 .legend-color.holiday { background: #fee2e2; }
 .legend-color.vacation { background: #dbeafe; }
 .legend-color.workday { background: white; border: 1px solid var(--border-color); }
+.legend-color.assigned { background: #d1fae5; }
 
 .event-item {
     display: flex;
@@ -353,6 +585,63 @@ async function deleteEvent(id) {
     font-size: 0.875rem;
 }
 
+.context-menu {
+    position: fixed;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 2000;
+    min-width: 200px;
+    overflow: hidden;
+}
+
+.context-menu-header {
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+    font-size: 0.85rem;
+    background: var(--background-color);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.context-menu-items {
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.context-menu-item {
+    padding: 0.6rem 1rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background 0.15s;
+}
+
+.context-menu-item:hover {
+    background: var(--background-color);
+}
+
+.context-menu-item.disabled {
+    color: var(--text-secondary);
+    cursor: default;
+}
+
+.context-menu-item.disabled:hover {
+    background: transparent;
+}
+
+.context-menu-item.danger {
+    color: #dc2626;
+}
+
+.context-menu-item.danger:hover {
+    background: #fee2e2;
+}
+
+.context-menu-divider {
+    height: 1px;
+    background: var(--border-color);
+}
+
 .modal {
     position: fixed;
     top: 0;
@@ -370,7 +659,7 @@ async function deleteEvent(id) {
     background: white;
     border-radius: 12px;
     width: 90%;
-    max-width: 400px;
+    max-width: 450px;
 }
 
 .modal-header {
@@ -388,6 +677,10 @@ async function deleteEvent(id) {
     cursor: pointer;
 }
 
+.modal-body {
+    padding: 1.5rem;
+}
+
 .modal-content form {
     padding: 1.5rem;
 }
@@ -397,6 +690,23 @@ async function deleteEvent(id) {
     justify-content: flex-end;
     gap: 0.5rem;
     margin-top: 1.5rem;
+}
+
+.week-schedule-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.week-schedule-btn {
+    text-align: left;
+    padding: 0.75rem 1rem;
+}
+
+.week-range-text {
+    margin-top: 1rem;
+    color: var(--text-secondary);
 }
 </style>
 {% endblock %}

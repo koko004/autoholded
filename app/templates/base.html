@@ -9,6 +9,7 @@
     {% block extra_css %}{% endblock %}
 </head>
 <body>
+    {% block navbar %}
     <nav class="navbar">
         <div class="navbar-brand">
             <a href="/" class="navbar-logo">
@@ -23,8 +24,12 @@
             <a href="/attendance" class="navbar-item {% if request.url.path == '/attendance' %}active{% endif %}">Historial</a>
             <a href="/debug" class="navbar-item {% if request.url.path == '/debug' %}active{% endif %}">Debug</a>
             <a href="/logs" class="navbar-item {% if request.url.path == '/logs' %}active{% endif %}">Logs</a>
+            {% if auth_enabled and is_logged_in %}
+            <a href="/logout" class="navbar-item" style="color: #ef4444;">Salir</a>
+            {% endif %}
         </div>
     </nav>
+    {% endblock %}
     
     <main class="container">
         {% block content %}{% endblock %}

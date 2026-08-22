@@ -1,5 +1,5 @@
 """API router for REST endpoints."""
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Depends
 from typing import List, Optional
 from datetime import date, datetime, time
 from pydantic import BaseModel
@@ -18,9 +18,11 @@ from app.services.fichador import fichador
 from app.services.storage import (
     get_schedules, get_schedule, save_schedule, delete_schedule,
     get_config, save_config, get_attendance as storage_get_attendance, save_attendance,
-    get_calendar_events, save_calendar_event, delete_calendar_event
+    get_calendar_events as storage_get_calendar_events, save_calendar_event, delete_calendar_event,
+    save_schedule_assignment, delete_schedule_assignment
 )
 from app.config import settings
+from app.security import verify_api_key
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -64,7 +66,7 @@ class TwoFactorCodeRequest(BaseModel):
     code: str
 
 
-@router.post("/auth/login")
+@router.post("/auth/login", dependencies=[Depends(verify_api_key)])
 async def start_login(request: LoginRequest, background_tasks: BackgroundTasks):
     """
     Start login process with 2FA support.
@@ -83,13 +85,13 @@ async def start_login(request: LoginRequest, background_tasks: BackgroundTasks):
     }
 
 
-@router.get("/auth/status")
+@router.get("/auth/status", dependencies=[Depends(verify_api_key)])
 async def get_auth_status():
     """Get current authentication status (poll this during login)."""
     return fichador.get_auth_status()
 
 
-@router.post("/auth/2fa")
+@router.post("/auth/2fa", dependencies=[Depends(verify_api_key)])
 async def submit_2fa_code(request: TwoFactorCodeRequest):
     """Submit 2FA code during login process."""
     if fichador.auth_state.value != "waiting_2fa":
@@ -105,7 +107,7 @@ async def submit_2fa_code(request: TwoFactorCodeRequest):
     }
 
 
-@router.post("/auth/check-session")
+@router.post("/auth/check-session", dependencies=[Depends(verify_api_key)])
 async def check_session():
     """Check if current session is valid."""
     try:
@@ -115,7 +117,7 @@ async def check_session():
         return {"valid": False, "error": str(e)}
 
 
-@router.get("/auth/session-info")
+@router.get("/auth/session-info", dependencies=[Depends(verify_api_key)])
 async def get_session_info():
     """Get session details: user email, saved_at, time remaining."""
     from pathlib import Path
@@ -143,7 +145,7 @@ async def get_session_info():
             try:
                 config = get_config()
                 user_email = config.get("holded_email", "")
-            except:
+            except Exception:
                 pass
         if not user_email:
             # Fallback: try to find email from .env settings
@@ -161,7 +163,7 @@ async def get_session_info():
             try:
                 data["user_email"] = user_email
                 session_file.write_text(json.dumps(data, indent=2))
-            except:
+            except (IOError, OSError):
                 pass
 
         return {
@@ -177,7 +179,7 @@ async def get_session_info():
         return {"active": False, "message": f"Error leyendo sesión: {str(e)}"}
 
 
-@router.post("/auth/logout")
+@router.post("/auth/logout", dependencies=[Depends(verify_api_key)])
 async def logout():
     """Clear saved session."""
     try:
@@ -190,14 +192,14 @@ async def logout():
         return {"status": "error", "message": str(e)}
 
 
-@router.get("/config/headless")
+@router.get("/config/headless", dependencies=[Depends(verify_api_key)])
 async def get_headless_mode():
     """Get current headless mode setting."""
     from app.services.fichador import fichador
     return {"headless": fichador.headless}
 
 
-@router.post("/config/headless")
+@router.post("/config/headless", dependencies=[Depends(verify_api_key)])
 async def set_headless_mode(request: dict):
     """Set headless mode (False = visible browser for debugging)."""
     from app.services.fichador import fichador
@@ -240,7 +242,7 @@ async def set_headless_mode(request: dict):
 
 
 # === User Config Endpoints ===
-@router.get("/config")
+@router.get("/config", dependencies=[Depends(verify_api_key)])
 async def get_user_config():
     config = get_config()
     if not config:
@@ -248,14 +250,14 @@ async def get_user_config():
     return config
 
 
-@router.post("/config")
+@router.post("/config", dependencies=[Depends(verify_api_key)])
 async def create_config(config: UserConfigCreate):
     data = config.model_dump()
     save_config(data)
     return data
 
 
-@router.put("/config")
+@router.put("/config", dependencies=[Depends(verify_api_key)])
 async def update_config(config: UserConfigUpdate):
     existing = get_config()
     if not existing:
@@ -268,13 +270,13 @@ async def update_config(config: UserConfigUpdate):
 
 
 # === Work Schedule Endpoints ===
-@router.get("/schedules")
+@router.get("/schedules", dependencies=[Depends(verify_api_key)])
 async def get_all_schedules():
     schedules = get_schedules()
     return schedules
 
 
-@router.post("/schedules")
+@router.post("/schedules", dependencies=[Depends(verify_api_key)])
 async def create_schedule(schedule: WorkScheduleCreate):
     data = schedule.model_dump()
     
@@ -300,7 +302,7 @@ async def create_schedule(schedule: WorkScheduleCreate):
     return result
 
 
-@router.get("/schedules/{schedule_id}")
+@router.get("/schedules/{schedule_id}", dependencies=[Depends(verify_api_key)])
 async def get_single_schedule(schedule_id: str):
     schedule = get_schedule(schedule_id)
     if not schedule:
@@ -308,7 +310,7 @@ async def get_single_schedule(schedule_id: str):
     return schedule
 
 
-@router.put("/schedules/{schedule_id}")
+@router.put("/schedules/{schedule_id}", dependencies=[Depends(verify_api_key)])
 async def update_schedule(schedule_id: str, schedule: WorkScheduleUpdate):
     existing = get_schedule(schedule_id)
     if not existing:
@@ -341,7 +343,7 @@ async def update_schedule(schedule_id: str, schedule: WorkScheduleUpdate):
     return result
 
 
-@router.delete("/schedules/{schedule_id}")
+@router.delete("/schedules/{schedule_id}", dependencies=[Depends(verify_api_key)])
 async def delete_single_schedule(schedule_id: str):
     schedule = get_schedule(schedule_id)
     if not schedule:
@@ -357,7 +359,7 @@ async def delete_single_schedule(schedule_id: str):
     return MessageResponse(message="Schedule deleted")
 
 
-@router.post("/schedules/reload")
+@router.post("/schedules/reload", dependencies=[Depends(verify_api_key)])
 async def reload_schedules():
     """Reload all schedules in the scheduler."""
     from app.services.scheduler import scheduler
@@ -372,35 +374,83 @@ async def reload_schedules():
 
 
 # === Calendar Event Endpoints ===
-@router.get("/calendar")
+@router.get("/calendar", dependencies=[Depends(verify_api_key)])
 async def get_calendar_events(
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None)
 ):
-    events = get_calendar_events(year, month)
+    events = storage_get_calendar_events(year, month)
     return events
 
 
-@router.post("/calendar")
+@router.post("/calendar", dependencies=[Depends(verify_api_key)])
 async def create_calendar_event(event: CalendarEventCreate):
     data = event.model_dump()
     result = save_calendar_event(data)
     return result
 
 
-@router.delete("/calendar/{event_id}")
+@router.delete("/calendar/{event_id}", dependencies=[Depends(verify_api_key)])
 async def delete_calendar_event(event_id: str):
     delete_calendar_event(event_id)
     return MessageResponse(message="Event deleted")
 
 
-@router.get("/calendar/today")
+class ScheduleAssignmentRequest(BaseModel):
+    date: str
+    schedule_id: str
+    schedule_name: str
+
+
+@router.post("/calendar/assign", dependencies=[Depends(verify_api_key)])
+async def assign_schedule_to_date(request: ScheduleAssignmentRequest):
+    """Assign a schedule to a specific date via calendar."""
+    result = save_schedule_assignment(
+        target_date=request.date,
+        schedule_id=request.schedule_id,
+        schedule_name=request.schedule_name
+    )
+    return result
+
+
+@router.delete("/calendar/assign/{target_date}", dependencies=[Depends(verify_api_key)])
+async def remove_schedule_assignment(target_date: str):
+    """Remove schedule assignment for a specific date."""
+    delete_schedule_assignment(target_date)
+    return MessageResponse(message="Assignment removed")
+
+
+class WeekAssignmentRequest(BaseModel):
+    week_start: str
+    schedule_id: str
+    schedule_name: str
+
+
+@router.post("/calendar/assign-week", dependencies=[Depends(verify_api_key)])
+async def assign_schedule_to_week(request: WeekAssignmentRequest):
+    """Assign a schedule to an entire week (Mon-Fri)."""
+    from datetime import timedelta
+    start = date.fromisoformat(request.week_start)
+    assigned = []
+    for i in range(5):
+        day = start + timedelta(days=i)
+        day_str = day.isoformat()
+        save_schedule_assignment(
+            target_date=day_str,
+            schedule_id=request.schedule_id,
+            schedule_name=request.schedule_name
+        )
+        assigned.append(day_str)
+    return {"assigned_dates": assigned, "schedule_id": request.schedule_id}
+
+
+@router.get("/calendar/today", dependencies=[Depends(verify_api_key)])
 async def check_today():
     return {"date": date.today().isoformat(), "is_workday": True}
 
 
 # === Attendance Endpoints ===
-@router.get("/attendance")
+@router.get("/attendance", dependencies=[Depends(verify_api_key)])
 async def get_attendance(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None)
@@ -412,14 +462,14 @@ async def get_attendance(
     return logs
 
 
-@router.delete("/attendance/{record_id}")
+@router.delete("/attendance/{record_id}", dependencies=[Depends(verify_api_key)])
 async def delete_attendance_record(record_id: str):
     from app.services.storage import delete_attendance as storage_delete_attendance
     storage_delete_attendance(record_id)
     return {"status": "success", "message": "Registro eliminado"}
 
 
-@router.get("/attendance/today")
+@router.get("/attendance/today", dependencies=[Depends(verify_api_key)])
 async def get_today_status():
     from app.services.storage import get_schedules, get_attendance as storage_get_attendance
     from datetime import date as date_cls
@@ -459,14 +509,14 @@ async def get_today_status():
     )
 
 
-@router.post("/attendance/manual")
+@router.post("/attendance/manual", dependencies=[Depends(verify_api_key)])
 async def create_manual_attendance(attendance: AttendanceLogCreate):
     data = attendance.model_dump()
     result = save_attendance(data)
     return result
 
 
-@router.get("/attendance/stats")
+@router.get("/attendance/stats", dependencies=[Depends(verify_api_key)])
 async def get_attendance_stats(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None)
@@ -490,27 +540,27 @@ async def get_attendance_stats(
 
 
 # === Scheduler Endpoints ===
-@router.get("/scheduler/status")
+@router.get("/scheduler/status", dependencies=[Depends(verify_api_key)])
 async def get_scheduler_status():
     from app.services.scheduler import scheduler
     return SchedulerStatus(**scheduler.get_status())
 
 
-@router.post("/scheduler/start")
+@router.post("/scheduler/start", dependencies=[Depends(verify_api_key)])
 async def start_scheduler():
     from app.services.scheduler import scheduler
     await scheduler.start()
     return MessageResponse(message="Scheduler started")
 
 
-@router.post("/scheduler/stop")
+@router.post("/scheduler/stop", dependencies=[Depends(verify_api_key)])
 async def stop_scheduler():
     from app.services.scheduler import scheduler
     await scheduler.stop()
     return MessageResponse(message="Scheduler stopped")
 
 
-@router.post("/scheduler/force")
+@router.post("/scheduler/force", dependencies=[Depends(verify_api_key)])
 async def force_fichaje(request: ForceFichajeRequest):
     """Execute a forced fichaje action."""
     import logging
@@ -611,7 +661,7 @@ class ManualFichajeRequest(BaseModel):
     target_date: Optional[str] = None
 
 
-@router.post("/attendance/manual-fichaje")
+@router.post("/attendance/manual-fichaje", dependencies=[Depends(verify_api_key)])
 async def manual_fichaje(request: ManualFichajeRequest):
     """Execute a manual fichaje using the Holded 'Añadir fichaje' form."""
     from app.services.fichador import fichador
@@ -671,7 +721,7 @@ async def manual_fichaje(request: ManualFichajeRequest):
                     first_entry = block.get("entry", "")
                 if last_exit is None or block.get("exit", "") > last_exit:
                     last_exit = block.get("exit", "")
-            except:
+            except (ValueError, KeyError, IndexError):
                 pass
 
         save_attendance({
@@ -690,7 +740,7 @@ async def manual_fichaje(request: ManualFichajeRequest):
     return result
 
 
-@router.post("/attendance/modify-fichaje")
+@router.post("/attendance/modify-fichaje", dependencies=[Depends(verify_api_key)])
 async def modify_fichaje(request: ModifyFichajeRequest):
     """Modify an existing fichaje in Holded."""
     from app.services.fichador import fichador
@@ -708,7 +758,7 @@ async def modify_fichaje(request: ModifyFichajeRequest):
     return result
 
 
-@router.post("/attendance/corregir-fichaje")
+@router.post("/attendance/corregir-fichaje", dependencies=[Depends(verify_api_key)])
 async def corregir_fichaje():
     """Correct today's fichaje by editing it with the active schedule's work blocks."""
     from app.services.fichador import fichador
@@ -742,7 +792,7 @@ async def corregir_fichaje():
 
 
 # === Logs Endpoints ===
-@router.get("/logs")
+@router.get("/logs", dependencies=[Depends(verify_api_key)])
 async def get_logs(
     level: Optional[str] = Query(None),
     module: Optional[str] = Query(None),
@@ -785,7 +835,7 @@ async def get_logs(
     return log_entries[:limit]
 
 
-@router.delete("/logs/clean")
+@router.delete("/logs/clean", dependencies=[Depends(verify_api_key)])
 async def clean_logs(days_to_keep: int = Query(30, ge=1)):
     from pathlib import Path
     import time
@@ -801,7 +851,7 @@ async def clean_logs(days_to_keep: int = Query(30, ge=1)):
     return MessageResponse(message=f"Eliminados {cleaned} archivos de log")
 
 
-@router.get("/logs/stream")
+@router.get("/logs/stream", dependencies=[Depends(verify_api_key)])
 async def stream_logs():
     """SSE endpoint for live log streaming."""
     from fastapi.responses import StreamingResponse
@@ -848,14 +898,14 @@ async def stream_logs():
 
 
 # === Debug Endpoints ===
-@router.get("/debug/steps")
+@router.get("/debug/steps", dependencies=[Depends(verify_api_key)])
 async def get_debug_steps():
     """Get debug steps from last operation."""
     from app.services.fichador import fichador
     return {"steps": fichador.get_debug_steps()}
 
 
-@router.get("/debug/screenshot/{filename}")
+@router.get("/debug/screenshot/{filename}", dependencies=[Depends(verify_api_key)])
 async def get_debug_screenshot(filename: str):
     """Serve a debug screenshot file."""
     from fastapi.responses import FileResponse
@@ -874,7 +924,7 @@ class TelegramConfigUpdate(BaseModel):
     screenshot_mode: Optional[str] = None
 
 
-@router.get("/telegram/config")
+@router.get("/telegram/config", dependencies=[Depends(verify_api_key)])
 async def get_telegram_config():
     """Get Telegram bot configuration (token is masked)."""
     config = get_config()
@@ -891,7 +941,7 @@ async def get_telegram_config():
     }
 
 
-@router.put("/telegram/config")
+@router.put("/telegram/config", dependencies=[Depends(verify_api_key)])
 async def update_telegram_config(body: TelegramConfigUpdate):
     """Update Telegram bot configuration and restart bot if needed."""
     from app.services.telegram_bot import telegram_bot
@@ -926,7 +976,7 @@ async def update_telegram_config(body: TelegramConfigUpdate):
         return {"status": "success", "message": "Configuración guardada (bot desactivado)"}
 
 
-@router.post("/telegram/test")
+@router.post("/telegram/test", dependencies=[Depends(verify_api_key)])
 async def test_telegram_connection():
     """Send a test message to the configured Telegram chat."""
     from app.services.telegram_bot import telegram_bot
@@ -941,7 +991,7 @@ async def test_telegram_connection():
         return {"status": "error", "message": str(e)}
 
 
-@router.get("/telegram/status")
+@router.get("/telegram/status", dependencies=[Depends(verify_api_key)])
 async def get_telegram_status():
     """Get Telegram bot runtime status."""
     from app.services.telegram_bot import telegram_bot
