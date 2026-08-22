@@ -8,7 +8,8 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.config import settings
 from app.services.storage import (
-    get_schedules, get_schedule, get_config, get_schedule_assignment
+    get_schedules, get_schedule, get_config, get_schedule_assignment,
+    get_calendar_events
 )
 
 logger = logging.getLogger(__name__)
@@ -208,8 +209,26 @@ class FichadorScheduler:
         RETRY_DELAY = 5
 
         try:
-            # First, check if there's a calendar assignment for today
+            # First, check if today is a holiday or vacation - these always override
             today_str = date.today().isoformat()
+            if self._is_holiday_or_vacation(today_str):
+                logger.info(f"Today ({today_str}) is a holiday or vacation, skipping fichaje")
+                try:
+                    from app.services.telegram_bot import telegram_bot
+                    if telegram_bot.is_running:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(
+                                telegram_bot.send_notification("ℹ️ *Scheduler*\n\nHoy es festivo/vacaciones, fichaje omitido.")
+                            )
+                        finally:
+                            loop.close()
+                except Exception as e:
+                    logger.error(f"Failed to send Telegram notification: {e}")
+                return
+
+            # Check if there's a calendar assignment for today
             assignment = get_schedule_assignment(today_str)
             
             effective_schedule_id = schedule_id
@@ -463,6 +482,22 @@ class FichadorScheduler:
         is_weekday = today.weekday() < 5
         logger.info(f"Today is weekday {today.weekday()}, default check: {is_weekday}")
         return is_weekday
+
+    def _is_holiday_or_vacation(self, target_date: str) -> bool:
+        """Check if a date is marked as holiday or vacation in the calendar.
+        
+        Holidays and vacations always override any schedule assignment.
+        """
+        year = int(target_date[:4])
+        month = int(target_date[5:7])
+        events = get_calendar_events(year=year, month=month)
+        for event in events:
+            if event.get("event_date") == target_date:
+                event_type = event.get("event_type")
+                if event_type in ("holiday", "vacation"):
+                    logger.info(f"Date {target_date} is {event_type}: {event.get('description', '')}")
+                    return True
+        return False
 
     def get_next_run_time(self) -> Optional[datetime]:
         """Get the next scheduled run time."""

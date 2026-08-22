@@ -61,8 +61,9 @@
     </div>
     
     <div class="context-menu" id="context-menu" style="display: none;">
-        <div class="context-menu-header" id="context-menu-date">Asignar horario</div>
+        <div class="context-menu-header" id="context-menu-date">Acciones</div>
         <div class="context-menu-items" id="context-menu-schedules"></div>
+        <div class="context-menu-items" id="context-menu-events" style="display: none;"></div>
         <div class="context-menu-divider"></div>
         <div class="context-menu-item danger" id="context-menu-clear">Limpiar asignacion</div>
     </div>
@@ -255,15 +256,34 @@ function showContextMenu(e, dateStr) {
     var menu = document.getElementById('context-menu');
     var dateObj = new Date(dateStr + 'T12:00:00');
     document.getElementById('context-menu-date').textContent = 
-        'Asignar horario - ' + dateObj.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+        dateObj.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
     
-    var container = document.getElementById('context-menu-schedules');
+    var schedulesContainer = document.getElementById('context-menu-schedules');
     if (schedules.length === 0) {
-        container.innerHTML = '<div class="context-menu-item disabled">No hay horarios creados</div>';
+        schedulesContainer.innerHTML = '<div class="context-menu-item disabled">No hay horarios creados</div>';
     } else {
-        container.innerHTML = schedules.map(function(s) {
-            return '<div class="context-menu-item" onclick="assignSchedule(\'' + s.id + '\', \'' + s.name.replace(/'/g, "\\'") + '\')">' + s.name + '</div>';
-        }).join('');
+        schedulesContainer.innerHTML = '<div class="context-menu-subheader">Asignar horario</div>' +
+            schedules.map(function(s) {
+                return '<div class="context-menu-item" onclick="assignSchedule(\'' + s.id + '\', \'' + s.name.replace(/'/g, "\\'") + '\')">' + s.name + '</div>';
+            }).join('');
+    }
+    
+    var dayEvents = events.filter(function(ev) { return ev.event_date === dateStr; });
+    var eventsContainer = document.getElementById('context-menu-events');
+    if (dayEvents.length > 0) {
+        eventsContainer.style.display = 'block';
+        eventsContainer.innerHTML = '<div class="context-menu-subheader">Eventos del dia</div>' +
+            dayEvents.map(function(ev) {
+                var typeLabel = ev.event_type === 'holiday' ? 'Festivo' : 
+                               ev.event_type === 'vacation' ? 'Vacaciones' : ev.event_type;
+                return '<div class="context-menu-item context-menu-event">' +
+                    '<span class="badge badge-' + ev.event_type + '">' + typeLabel + '</span> ' +
+                    (ev.description || '') +
+                    ' <button class="btn-delete-inline" onclick="deleteEvent(\'' + ev.id + '\')">&#215;</button>' +
+                '</div>';
+            }).join('');
+    } else {
+        eventsContainer.style.display = 'none';
     }
     
     menu.style.display = 'block';
@@ -642,6 +662,37 @@ async function deleteEvent(id) {
 
 .context-menu-item.danger:hover {
     background: #fee2e2;
+}
+
+.context-menu-subheader {
+    padding: 0.5rem 1rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.context-menu-event {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-delete-inline {
+    background: none;
+    border: none;
+    color: #dc2626;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0 0.25rem;
+    margin-left: auto;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+}
+
+.btn-delete-inline:hover {
+    opacity: 1;
 }
 
 .context-menu-divider {
