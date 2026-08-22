@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Fichador Holded{% endblock %}</title>
     <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v={{ version }}">
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -64,7 +64,7 @@
         <div class="log-terminal-body" id="log-terminal-body"></div>
     </div>
     
-    <script src="/static/js/main.js"></script>
+    <script src="/static/js/main.js?v={{ version }}"></script>
     <script>
     (function() {
         var terminal = document.getElementById('log-terminal');
