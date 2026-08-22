@@ -39,7 +39,107 @@
         <p>Autoholded v{{ version }}</p>
     </footer>
     
+    <!-- Floating Log Terminal -->
+    <div id="log-terminal-toggle" class="log-terminal-toggle" title="Logs en vivo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="4 17 10 11 4 5"></polyline>
+            <line x1="12" y1="19" x2="20" y2="19"></line>
+        </svg>
+    </div>
+    <div id="log-terminal" class="log-terminal" style="display: none;">
+        <div class="log-terminal-header" id="log-terminal-drag">
+            <span class="log-terminal-title">Logs en vivo</span>
+            <div class="log-terminal-controls">
+                <span id="log-terminal-status" class="log-terminal-status">Conectando...</span>
+                <button class="log-terminal-btn" id="log-terminal-clear" title="Limpiar">&#128465;</button>
+                <button class="log-terminal-btn" id="log-terminal-minimize" title="Minimizar">&#8722;</button>
+            </div>
+        </div>
+        <div class="log-terminal-body" id="log-terminal-body"></div>
+    </div>
+    
     <script src="/static/js/main.js"></script>
+    <script>
+    (function() {
+        var terminal = document.getElementById('log-terminal');
+        var toggle = document.getElementById('log-terminal-toggle');
+        var body = document.getElementById('log-terminal-body');
+        var dragHandle = document.getElementById('log-terminal-drag');
+        var clearBtn = document.getElementById('log-terminal-clear');
+        var minimizeBtn = document.getElementById('log-terminal-minimize');
+        var statusEl = document.getElementById('log-terminal-status');
+        var evtSource = null;
+        var isOpen = false;
+        var isDragging = false;
+        var dragX, dragY;
+
+        toggle.addEventListener('click', function() {
+            isOpen = !isOpen;
+            terminal.style.display = isOpen ? 'flex' : 'none';
+            toggle.style.display = isOpen ? 'none' : 'flex';
+            if (isOpen && !evtSource) connectSSE();
+        });
+
+        minimizeBtn.addEventListener('click', function() {
+            isOpen = false;
+            terminal.style.display = 'none';
+            toggle.style.display = 'flex';
+        });
+
+        clearBtn.addEventListener('click', function() {
+            body.innerHTML = '';
+        });
+
+        dragHandle.addEventListener('mousedown', function(e) {
+            isDragging = true;
+            dragX = e.clientX - terminal.offsetLeft;
+            dragY = e.clientY - terminal.offsetTop;
+            document.addEventListener('mousemove', onDrag);
+            document.addEventListener('mouseup', stopDrag);
+        });
+
+        function onDrag(e) {
+            if (!isDragging) return;
+            terminal.style.left = (e.clientX - dragX) + 'px';
+            terminal.style.top = (e.clientY - dragY) + 'px';
+            terminal.style.right = 'auto';
+            terminal.style.bottom = 'auto';
+        }
+
+        function stopDrag() {
+            isDragging = false;
+            document.removeEventListener('mousemove', onDrag);
+            document.removeEventListener('mouseup', stopDrag);
+        }
+
+        function connectSSE() {
+            evtSource = new EventSource('/api/logs/stream');
+            evtSource.onmessage = function(e) {
+                try {
+                    var entry = JSON.parse(e.data);
+                    var line = document.createElement('div');
+                    line.className = 'log-terminal-line log-' + entry.level;
+                    var ts = entry.timestamp ? entry.timestamp.split(' ')[1] || entry.timestamp : '';
+                    line.innerHTML = '<span class="log-ts">' + ts + '</span> ' +
+                        '<span class="log-level">[' + entry.level.toUpperCase() + ']</span> ' +
+                        '<span class="log-module">' + entry.module + ':</span> ' +
+                        entry.message;
+                    body.appendChild(line);
+                    body.scrollTop = body.scrollHeight;
+                    while (body.children.length > 200) body.removeChild(body.firstChild);
+                } catch(err) {}
+            };
+            evtSource.onopen = function() {
+                statusEl.textContent = 'Conectado';
+                statusEl.className = 'log-terminal-status connected';
+            };
+            evtSource.onerror = function() {
+                statusEl.textContent = 'Desconectado';
+                statusEl.className = 'log-terminal-status disconnected';
+            };
+        }
+    })();
+    </script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

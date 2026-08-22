@@ -133,6 +133,14 @@ function formatLocalDate(d) {
     return year + '-' + month + '-' + day;
 }
 
+function eventTypeLabel(t) {
+    if (t === 'holiday') return 'Festivo';
+    if (t === 'vacation') return 'Vacaciones';
+    if (t === 'special_schedule') return 'Horario especial';
+    if (t === 'schedule_assignment') return 'Asignacion';
+    return t;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     renderCalendar();
     loadEvents();
@@ -242,7 +250,7 @@ function renderEventsList() {
     container.innerHTML = upcomingEvents.map(function(event) {
         return '<div class="event-item">' +
             '<span class="event-date">' + new Date(event.event_date).toLocaleDateString('es-ES') + '</span>' +
-            '<span class="event-type badge badge-' + event.event_type + '">' + event.event_type + '</span>' +
+            '<span class="event-type badge badge-' + event.event_type + '">' + eventTypeLabel(event.event_type) + '</span>' +
             '<span class="event-description">' + (event.description || '') + '</span>' +
             '<button class="btn btn-danger btn-sm" onclick="deleteEvent(\'' + event.id + '\')">&#215;</button>' +
         '</div>';
@@ -274,10 +282,8 @@ function showContextMenu(e, dateStr) {
         eventsContainer.style.display = 'block';
         eventsContainer.innerHTML = '<div class="context-menu-subheader">Eventos del dia</div>' +
             dayEvents.map(function(ev) {
-                var typeLabel = ev.event_type === 'holiday' ? 'Festivo' : 
-                               ev.event_type === 'vacation' ? 'Vacaciones' : ev.event_type;
                 return '<div class="context-menu-item context-menu-event">' +
-                    '<span class="badge badge-' + ev.event_type + '">' + typeLabel + '</span> ' +
+                    '<span class="badge badge-' + ev.event_type + '">' + eventTypeLabel(ev.event_type) + '</span> ' +
                     (ev.description || '') +
                     ' <button class="btn-delete-inline" onclick="deleteEvent(\'' + ev.id + '\')">&#215;</button>' +
                 '</div>';
