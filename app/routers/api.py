@@ -496,6 +496,14 @@ async def delete_attendance_record(record_id: str):
     return {"status": "success", "message": "Registro eliminado"}
 
 
+@router.post("/attendance/repair", dependencies=[Depends(verify_api_key)])
+async def repair_attendance_records():
+    """Repair attendance records with invalid timestamps."""
+    from app.services.storage import repair_attendance
+    repaired = repair_attendance()
+    return {"status": "success", "repaired": repaired, "message": f"{repaired} registros reparados"}
+
+
 @router.get("/attendance/today", dependencies=[Depends(verify_api_key)])
 async def get_today_status():
     from app.services.storage import get_schedules, get_attendance as storage_get_attendance

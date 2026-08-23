@@ -233,6 +233,54 @@ def delete_attendance(record_id: str) -> bool:
         return True
 
 
+def repair_attendance() -> int:
+    """Repair attendance records with invalid entry_time/exit_time.
+    
+    Detects timestamps that aren't valid ISO format and attempts to fix them.
+    Returns the number of records repaired.
+    """
+    from datetime import datetime as dt
+    lock = _get_lock(ATTENDANCE_FILE)
+    repaired = 0
+    with lock:
+        data = _read_json(ATTENDANCE_FILE)
+        logs = data.get("logs", [])
+
+        for log in logs:
+            changed = False
+            date_str = log.get("date", "")
+            
+            for field in ("entry_time", "exit_time"):
+                val = log.get(field)
+                if val and isinstance(val, str):
+                    try:
+                        parsed = dt.fromisoformat(val)
+                    except (ValueError, TypeError):
+                        # Try to interpret as time-only like "15:00" or "15:00:00"
+                        for fmt in ("%H:%M:%S", "%H:%M"):
+                            try:
+                                t = dt.strptime(val, fmt).time()
+                                if date_str:
+                                    log[field] = f"{date_str}T{t.isoformat()}"
+                                    changed = True
+                                    break
+                            except ValueError:
+                                continue
+                        else:
+                            # Can't parse at all, set to None
+                            log[field] = None
+                            changed = True
+
+            if changed:
+                repaired += 1
+
+        if repaired:
+            data["logs"] = logs
+            _write_json(ATTENDANCE_FILE, data)
+
+    return repaired
+
+
 # === Calendar ===
 def get_calendar_events(year: Optional[int] = None, month: Optional[int] = None) -> List[Dict[str, Any]]:
     """Get calendar events, optionally filtered."""

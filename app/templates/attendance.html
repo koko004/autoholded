@@ -7,6 +7,7 @@
     <div class="page-header">
         <h1>Historial de Fichajes</h1>
         <div class="page-actions">
+            <button class="btn btn-secondary" id="btn-repair">Reparar datos</button>
             <button class="btn btn-secondary" id="btn-export">Exportar CSV</button>
         </div>
     </div>
@@ -127,6 +128,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     document.getElementById('filter-form').addEventListener('submit', applyFilters);
     document.getElementById('btn-export').addEventListener('click', exportData);
+    document.getElementById('btn-repair').addEventListener('click', repairData);
     document.getElementById('btn-close-edit-modal').addEventListener('click', closeEditModal);
     document.getElementById('btn-cancel-edit').addEventListener('click', closeEditModal);
     document.getElementById('edit-form').addEventListener('submit', saveEdit);
@@ -191,7 +193,11 @@ function calculateTotal(record) {
     
     const entry = new Date(record.entry_time);
     const exit = new Date(record.exit_time);
-    const totalMinutes = (exit - entry) / 1000 / 60 - record.pause_minutes;
+    if (isNaN(entry.getTime()) || isNaN(exit.getTime())) return '--:--';
+    
+    const totalMinutes = (exit - entry) / 1000 / 60 - (record.pause_minutes || 0);
+    
+    if (isNaN(totalMinutes) || totalMinutes < 0) return '--:--';
     
     const hours = Math.floor(totalMinutes / 60);
     const minutes = Math.round(totalMinutes % 60);
@@ -207,8 +213,13 @@ function calculateStats() {
         if (record.entry_time && record.exit_time) {
             const entry = new Date(record.entry_time);
             const exit = new Date(record.exit_time);
-            totalMinutes += (exit - entry) / 1000 / 60 - record.pause_minutes;
-            daysWorked++;
+            if (!isNaN(entry.getTime()) && !isNaN(exit.getTime())) {
+                const mins = (exit - entry) / 1000 / 60 - (record.pause_minutes || 0);
+                if (mins > 0) {
+                    totalMinutes += mins;
+                    daysWorked++;
+                }
+            }
         }
     });
     
@@ -232,7 +243,11 @@ function calculateStats() {
 
 function formatTime(dateString) {
     if (!dateString) return '--:--';
-    return new Date(dateString).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    try {
+        const d = new Date(dateString);
+        if (isNaN(d.getTime())) return '--:--';
+        return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    } catch { return '--:--'; }
 }
 
 function applyFilters(e) {
@@ -257,6 +272,23 @@ function exportData() {
     }));
     
     exportToCSV(exportData, `fichajes_${new Date().toISOString().split('T')[0]}.csv`);
+}
+
+async function repairData() {
+    if (!confirm('Esto reparará registros con fechas invalidas. Continuar?')) return;
+    
+    try {
+        const res = await fetch('/api/attendance/repair', { method: 'POST' });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showNotification(data.message, 'success');
+            loadAttendance();
+        } else {
+            showNotification('Error al reparar datos', 'error');
+        }
+    } catch (e) {
+        showNotification('Error al reparar datos', 'error');
+    }
 }
 
 // === Edit Modal Functions ===
