@@ -261,9 +261,14 @@ async def create_config(config: UserConfigCreate):
 async def update_config(config: UserConfigUpdate):
     existing = get_config()
     if not existing:
-        raise HTTPException(status_code=404, detail="No configuration found")
+        existing = {}
     
     update_data = config.model_dump(exclude_unset=True)
+    
+    # Never overwrite dashboard_password with empty string via this endpoint
+    if "dashboard_password" in update_data and not update_data["dashboard_password"]:
+        del update_data["dashboard_password"]
+    
     existing.update(update_data)
     save_config(existing)
     return existing

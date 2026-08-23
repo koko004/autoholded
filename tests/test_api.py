@@ -14,6 +14,8 @@ def setup_test_data(tmp_path, monkeypatch):
     monkeypatch.setattr("app.services.storage.CALENDAR_FILE", tmp_path / "calendar.json")
     monkeypatch.setattr("app.services.storage.LOCKS_DIR", tmp_path / ".locks")
     Path(tmp_path / ".locks").mkdir(exist_ok=True)
+    # Disable auth for tests
+    monkeypatch.setattr("app.config.settings.DASHBOARD_PASSWORD", None)
     return tmp_path
 
 

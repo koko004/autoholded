@@ -5,10 +5,10 @@ from fastapi.templating import Jinja2Templates
 from pathlib import Path
 from typing import Optional
 
-from app.services.storage import get_config
+from app.services.storage import get_config, save_config
 from app.config import settings
 from app.security import (
-    is_dashboard_auth_enabled, is_web_authenticated,
+    is_dashboard_auth_enabled, is_web_authenticated, is_first_run,
     get_dashboard_credentials, create_session_token,
     SESSION_COOKIE_NAME, SESSION_MAX_AGE
 )
@@ -45,11 +45,97 @@ def render_template(template_name: str, request: Request, context: dict = None):
 
 
 def check_auth_or_redirect(request: Request) -> Optional[RedirectResponse]:
-    """Redirect to /login if dashboard auth is required and user is not authenticated."""
+    """Redirect to /login if dashboard auth is required and user is not authenticated.
+    
+    Also redirects to /setup if no password has been configured yet.
+    """
+    # First run: force password setup
+    if is_first_run():
+        if request.url.path != "/setup":
+            return RedirectResponse(url="/setup", status_code=303)
+        return None
+
     if is_dashboard_auth_enabled() and not is_web_authenticated(request):
-        return RedirectResponse(url="/login", status_code=303)
+        if request.url.path != "/login":
+            return RedirectResponse(url="/login", status_code=303)
+        return None
     return None
 
+
+# === First-run setup ===
+
+@router.get("/setup", response_class=HTMLResponse)
+async def setup_page(request: Request):
+    """First-run setup page to create admin password."""
+    # If already authenticated or password already set, redirect to dashboard
+    if not is_first_run():
+        if is_web_authenticated(request):
+            return RedirectResponse(url="/", status_code=303)
+        return RedirectResponse(url="/login", status_code=303)
+    return render_template("setup.html", request)
+
+
+@router.post("/setup")
+async def setup_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...)
+):
+    """Process first-run setup form."""
+    if not username or not password:
+        return render_template("setup.html", request, {
+            "error": "Usuario y contraseña son obligatorios"
+        })
+
+    if len(password) < 4:
+        return render_template("setup.html", request, {
+            "error": "La contraseña debe tener al menos 4 caracteres",
+            "username": username
+        })
+
+    # Save to config.json
+    cfg = get_config()
+    cfg["dashboard_username"] = username
+    cfg["dashboard_password"] = password
+    save_config(cfg)
+
+    # Also save to .env for persistence
+    env_path = Path(__file__).parent.parent.parent / ".env"
+    if env_path.exists():
+        env_content = env_path.read_text()
+        lines = env_content.split("\n")
+        new_lines = []
+        found_user = False
+        found_pass = False
+        for line in lines:
+            if line.startswith("DASHBOARD_USERNAME="):
+                new_lines.append(f"DASHBOARD_USERNAME={username}")
+                found_user = True
+            elif line.startswith("DASHBOARD_PASSWORD="):
+                new_lines.append(f"DASHBOARD_PASSWORD={password}")
+                found_pass = True
+            else:
+                new_lines.append(line)
+        if not found_user:
+            new_lines.append(f"DASHBOARD_USERNAME={username}")
+        if not found_pass:
+            new_lines.append(f"DASHBOARD_PASSWORD={password}")
+        env_path.write_text("\n".join(new_lines))
+
+    # Auto-login after setup
+    token = create_session_token(username)
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        samesite="lax"
+    )
+    return response
+
+
+# === Login / Logout ===
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
@@ -93,6 +179,8 @@ async def logout_page():
     response.delete_cookie(key=SESSION_COOKIE_NAME)
     return response
 
+
+# === Protected pages ===
 
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):

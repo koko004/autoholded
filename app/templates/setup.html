@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Configuración Inicial - AutoHolded{% endblock %}
+
+{% block navbar %}{% endblock %}
+
+{% block content %}
+<div class="setup-page">
+    <div class="setup-container">
+        <div class="setup-card">
+            <div class="setup-logo">
+                <img src="/static/img/logo.png" alt="AutoHolded">
+            </div>
+            <h1>Configuración Inicial</h1>
+            <p class="setup-subtitle">Crea tu contraseña de acceso al dashboard.</p>
+            
+            {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+            {% endif %}
+            
+            <form method="POST" action="/setup">
+                <div class="form-group">
+                    <label for="username">Usuario</label>
+                    <input type="text" id="username" name="username" class="form-control" 
+                           value="{{ username if username else 'admin' }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Contraseña</label>
+                    <input type="password" id="password" name="password" class="form-control" 
+                           minlength="4" required placeholder="Mínimo 4 caracteres">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Crear contraseña y acceder</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+.setup-page {
+    min-height: 80vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.setup-container {
+    width: 100%;
+    max-width: 400px;
+    padding: 2rem;
+}
+
+.setup-card {
+    background: white;
+    border-radius: 12px;
+    padding: 2.5rem;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    text-align: center;
+}
+
+.setup-logo img {
+    height: 60px;
+    margin-bottom: 1.5rem;
+}
+
+.setup-card h1 {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+    color: #1f2937;
+}
+
+.setup-subtitle {
+    color: #6b7280;
+    margin-bottom: 1.5rem;
+}
+
+.form-group {
+    text-align: left;
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.3rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+.form-control {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 1rem;
+    box-sizing: border-box;
+}
+
+.btn-block {
+    width: 100%;
+    padding: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.alert-danger {
+    background: #fee2e2;
+    border: 1px solid #ef4444;
+    color: #991b1b;
+    padding: 0.75rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+</style>
+{% endblock %}

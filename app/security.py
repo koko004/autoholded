@@ -16,23 +16,43 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 def get_dashboard_credentials() -> Tuple[str, Optional[str]]:
-    """Get dashboard username and password from config.json or settings."""
+    """Get dashboard username and password.
+    
+    Priority:
+    1. config.json dashboard_password (if non-empty)
+    2. .env DASHBOARD_PASSWORD (if non-empty)
+    3. None (auth disabled)
+    """
+    username = settings.DASHBOARD_USERNAME or "admin"
+    password = None
+
     try:
         cfg = get_config()
-        username = cfg.get("dashboard_username") or settings.DASHBOARD_USERNAME or "admin"
-        password = cfg.get("dashboard_password") or settings.DASHBOARD_PASSWORD
-        # Treat empty string as None (no password = no auth)
-        if not password:
-            password = None
-        return username, password
+        if cfg:
+            username = cfg.get("dashboard_username") or username
+            cfg_pass = cfg.get("dashboard_password")
+            if cfg_pass:  # truthy: non-empty, non-None
+                password = cfg_pass
     except Exception:
-        return settings.DASHBOARD_USERNAME or "admin", settings.DASHBOARD_PASSWORD
+        pass
+
+    # .env fallback (only if config.json didn't have a password)
+    if not password and settings.DASHBOARD_PASSWORD:
+        password = settings.DASHBOARD_PASSWORD
+
+    return username, password
 
 
 def is_dashboard_auth_enabled() -> bool:
     """Check if dashboard authentication is enabled."""
     _, password = get_dashboard_credentials()
     return bool(password)
+
+
+def is_first_run() -> bool:
+    """Check if no password has been configured anywhere."""
+    _, password = get_dashboard_credentials()
+    return password is None
 
 
 def create_session_token(username: str) -> str:
