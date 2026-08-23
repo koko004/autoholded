@@ -21,6 +21,9 @@ def get_dashboard_credentials() -> Tuple[str, Optional[str]]:
         cfg = get_config()
         username = cfg.get("dashboard_username") or settings.DASHBOARD_USERNAME or "admin"
         password = cfg.get("dashboard_password") or settings.DASHBOARD_PASSWORD
+        # Treat empty string as None (no password = no auth)
+        if not password:
+            password = None
         return username, password
     except Exception:
         return settings.DASHBOARD_USERNAME or "admin", settings.DASHBOARD_PASSWORD
