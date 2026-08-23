@@ -82,12 +82,27 @@ def get_schedule(schedule_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def get_default_schedule() -> Optional[Dict[str, Any]]:
+    """Get the schedule marked as default."""
+    schedules = get_schedules()
+    for s in schedules:
+        if s.get("is_default"):
+            return s
+    return None
+
+
 def save_schedule(schedule: Dict[str, Any]) -> Dict[str, Any]:
     """Create or update a schedule."""
     lock = _get_lock(SCHEDULES_FILE)
     with lock:
         data = _read_json(SCHEDULES_FILE)
         schedules = data.get("schedules", [])
+
+        # If this schedule is marked as default, clear default from others
+        if schedule.get("is_default"):
+            for s in schedules:
+                if s.get("id") != schedule.get("id"):
+                    s["is_default"] = False
 
         if schedule.get("id"):
             for i, s in enumerate(schedules):

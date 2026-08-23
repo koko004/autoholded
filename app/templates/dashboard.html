@@ -16,6 +16,8 @@
                     <span class="status-text">Cargando...</span>
                 </div>
                 <div class="scheduler-info">
+                    <p><strong>Modo:</strong> <span id="schedule-source-mode">Cargando...</span></p>
+                    <p><strong>Horario predeterminado:</strong> <span id="default-schedule">--</span></p>
                     <p><strong>Proximo fichaje:</strong> <span id="next-fichaje">--:--</span></p>
                     <p><strong>Ultimo fichaje:</strong> <span id="last-fichaje">--:--</span></p>
                 </div>
@@ -189,10 +191,17 @@ function updateSchedulerUI(status) {
         statusText.textContent = 'Detenido';
     }
     
+    // Schedule source mode
+    const modeText = status.schedule_source === 'calendar' ? 'Calendario' : 'Horarios';
+    document.getElementById('schedule-source-mode').textContent = modeText;
+    
     document.getElementById('next-fichaje').textContent = 
         status.next_fichaje ? new Date(status.next_fichaje).toLocaleTimeString() : '--:--';
     document.getElementById('last-fichaje').textContent = 
         status.last_fichaje ? new Date(status.last_fichaje).toLocaleTimeString() : '--:--';
+    
+    // Load default schedule
+    loadDefaultSchedule();
 }
 
 function updateTodayUI(status) {
@@ -233,6 +242,18 @@ function calculateTotal(entry, exit, pauseMinutes) {
     const hours = Math.floor(total / 60);
     const minutes = Math.round(total % 60);
     return `${hours}h ${minutes}m`;
+}
+
+async function loadDefaultSchedule() {
+    try {
+        const response = await fetch('/api/schedules');
+        const schedules = await response.json();
+        const defaultSchedule = schedules.find(s => s.is_default);
+        document.getElementById('default-schedule').textContent = 
+            defaultSchedule ? defaultSchedule.name : 'No configurado';
+    } catch (e) {
+        document.getElementById('default-schedule').textContent = '--';
+    }
 }
 
 async function startScheduler() {

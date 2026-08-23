@@ -269,6 +269,33 @@ async def update_config(config: UserConfigUpdate):
     return existing
 
 
+@router.put("/config/scheduler", dependencies=[Depends(verify_api_key)])
+async def update_scheduler_config(config: UserConfigUpdate):
+    """Update scheduler configuration (schedule_source) and reload schedules."""
+    existing = get_config()
+    if not existing:
+        raise HTTPException(status_code=404, detail="No configuration found")
+    
+    update_data = config.model_dump(exclude_unset=True)
+    existing.update(update_data)
+    save_config(existing)
+    
+    # Reload scheduler if running
+    from app.services.scheduler import scheduler
+    if scheduler.is_running:
+        scheduler.reload_schedules()
+    
+    return existing
+
+
+@router.get("/config/scheduler", dependencies=[Depends(verify_api_key)])
+async def get_scheduler_config():
+    """Get scheduler configuration."""
+    config = get_config()
+    schedule_source = config.get("schedule_source", "schedules") if config else "schedules"
+    return {"schedule_source": schedule_source}
+
+
 # === Work Schedule Endpoints ===
 @router.get("/schedules", dependencies=[Depends(verify_api_key)])
 async def get_all_schedules():

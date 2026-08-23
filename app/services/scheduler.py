@@ -9,7 +9,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.config import settings
 from app.services.storage import (
     get_schedules, get_schedule, get_config, get_schedule_assignment,
-    get_calendar_events
+    get_calendar_events, get_default_schedule
 )
 
 logger = logging.getLogger(__name__)
@@ -56,14 +56,26 @@ class FichadorScheduler:
             raise
 
     def _load_all_schedules(self):
-        """Load all active schedules and create jobs."""
-        schedules = get_schedules()
-        logger.info(f"Loading schedules: {len(schedules)} total")
+        """Load all active schedules and create jobs based on schedule source mode."""
+        config = get_config()
+        schedule_source = config.get("schedule_source", "schedules")
+        logger.info(f"Schedule source mode: {schedule_source}")
 
         # Clear existing jobs first
         for job in self.scheduler.get_jobs():
             self.scheduler.remove_job(job.id)
             logger.info(f"Removed existing job: {job.id}")
+
+        if schedule_source == "calendar":
+            # In calendar mode, we DON'T create cron jobs from active schedules.
+            # The scheduler will check assignments daily via _execute_live_tracking
+            logger.info("Calendar mode: No cron jobs created from active schedules")
+            logger.info("Schedule assignments will be resolved at execution time")
+            return
+
+        # Schedules mode: create cron jobs from active schedules (original behavior)
+        schedules = get_schedules()
+        logger.info(f"Loading schedules: {len(schedules)} total")
 
         for schedule in schedules:
             if schedule.get("is_active", True):
@@ -201,7 +213,8 @@ class FichadorScheduler:
         Schedule resolution order:
         1. Check calendar for schedule_assignment for today
         2. If found, use that schedule
-        3. If not found, use the schedule_id passed as parameter
+        3. If not found, use the default schedule (if set)
+        4. If no default, use the schedule_id passed as parameter
         """
         logger.info(f"=== SCHEDULER JOB FIRED: action={action}, schedule_id={schedule_id} ===")
 
@@ -237,6 +250,16 @@ class FichadorScheduler:
                 if assigned_id:
                     effective_schedule_id = assigned_id
                     logger.info(f"Using schedule from calendar assignment: {assigned_id} ({assignment.get('description')})")
+            else:
+                # No assignment found, try the default schedule
+                default_schedule = get_default_schedule()
+                if default_schedule:
+                    effective_schedule_id = default_schedule.get("id")
+                    logger.info(f"No calendar assignment, using default schedule: {default_schedule.get('name')}")
+                elif effective_schedule_id:
+                    logger.info(f"No calendar assignment or default, using passed schedule_id: {effective_schedule_id}")
+                else:
+                    logger.warning("No calendar assignment, no default schedule, and no schedule_id passed")
             
             schedule = None
             if effective_schedule_id:
@@ -508,6 +531,11 @@ class FichadorScheduler:
                 return min(next_times)
         return None
 
+    def get_schedule_source(self) -> str:
+        """Get the current schedule source mode."""
+        config = get_config()
+        return config.get("schedule_source", "schedules")
+
     def get_status(self) -> dict:
         """Get scheduler status."""
         jobs = self.scheduler.get_jobs()
@@ -518,8 +546,14 @@ class FichadorScheduler:
             'last_fichaje': self.last_fichaje.isoformat() if self.last_fichaje else None,
             'next_fichaje': self.get_next_run_time().isoformat() if self.get_next_run_time() else None,
             'active_jobs': job_ids,
-            'total_jobs': len(jobs)
+            'total_jobs': len(jobs),
+            'schedule_source': self.get_schedule_source()
         }
+
+    def reload_schedules(self):
+        """Reload all schedules (call after config changes)."""
+        logger.info("Reloading schedules...")
+        self._load_all_schedules()
 
 
 # Singleton instance

@@ -101,6 +101,26 @@
             <div id="dashboard-auth-result" style="display: none; margin-top: 0.5rem;"></div>
         </div>
 
+        <!-- Schedule Source -->
+        <div class="card">
+            <h2>Origen de Horarios</h2>
+            <p class="card-subtitle">Selecciona cómo se determinan los horarios de fichaje.</p>
+            <form id="schedule-source-form">
+                <div class="form-group">
+                    <label for="schedule_source">Modo de horarios</label>
+                    <select id="schedule_source" class="form-control">
+                        <option value="schedules">Horarios (sección Horarios)</option>
+                        <option value="calendar">Calendario (asignaciones del calendario)</option>
+                    </select>
+                </div>
+                <div class="schedule-source-info" id="schedule-source-info">
+                    <p id="schedule-source-description"></p>
+                </div>
+                <button type="submit" class="btn btn-primary">Guardar</button>
+            </form>
+            <div id="schedule-source-result" style="display: none; margin-top: 0.5rem;"></div>
+        </div>
+
         <!-- Telegram Bot (moved up) -->
         <div class="card">
             <h2>Bot de Telegram</h2>
@@ -188,7 +208,10 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btn-logout').addEventListener('click', handleLogout);
     document.getElementById('btn-check-session').addEventListener('click', handleCheckSession);
     document.getElementById('dashboard-auth-form').addEventListener('submit', saveDashboardAuth);
+    document.getElementById('schedule-source-form').addEventListener('submit', saveScheduleSource);
+    document.getElementById('schedule_source').addEventListener('change', updateScheduleSourceDescription);
     loadTelegramConfig();
+    loadScheduleSource();
 });
 
 async function checkSession() {
@@ -607,6 +630,67 @@ async function testTelegram() {
     }
     btn.disabled = false;
     btn.textContent = 'Probar conexión';
+}
+
+// === Schedule Source Functions ===
+
+async function loadScheduleSource() {
+    try {
+        const res = await fetch('/api/config/scheduler');
+        const data = await res.json();
+        document.getElementById('schedule_source').value = data.schedule_source || 'schedules';
+        updateScheduleSourceDescription();
+    } catch (e) {
+        console.error('Error loading schedule source:', e);
+    }
+}
+
+function updateScheduleSourceDescription() {
+    const mode = document.getElementById('schedule_source').value;
+    const desc = document.getElementById('schedule-source-description');
+    
+    if (mode === 'schedules') {
+        desc.innerHTML = '<strong>Modo Horarios:</strong> Se crean cron jobs para todos los horarios activos. El calendario solo sirve para override por día.';
+        desc.style.color = '#065f46';
+        desc.style.background = '#d1fae5';
+    } else {
+        desc.innerHTML = '<strong>Modo Calendario:</strong> Se consultan las asignaciones del calendario cada día. Si no hay asignación, se usa el horario predeterminado.';
+        desc.style.color = '#1e40af';
+        desc.style.background = '#dbeafe';
+    }
+    desc.style.padding = '0.75rem';
+    desc.style.borderRadius = '8px';
+    desc.style.marginTop = '0.5rem';
+}
+
+async function saveScheduleSource(e) {
+    e.preventDefault();
+    const mode = document.getElementById('schedule_source').value;
+    const resultDiv = document.getElementById('schedule-source-result');
+
+    try {
+        const res = await fetch('/api/config/scheduler', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schedule_source: mode })
+        });
+        const result = await res.json();
+        
+        if (result.schedule_source !== undefined) {
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'alert alert-success';
+            resultDiv.innerHTML = '✓ Configuración guardada. Los horarios se recargarán automáticamente.';
+            setTimeout(() => { resultDiv.style.display = 'none'; }, 3000);
+        } else {
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'alert alert-danger';
+            resultDiv.innerHTML = '✗ Error al guardar';
+        }
+    } catch (error) {
+        resultDiv.style.display = 'block';
+        resultDiv.className = 'alert alert-danger';
+        resultDiv.innerHTML = '✗ Error de conexión';
+    }
 }
 </script>
 

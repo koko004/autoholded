@@ -163,9 +163,12 @@ async function loadSchedules() {
             <div class="card schedule-card">
                 <div class="schedule-header">
                     <h3>${schedule.name}</h3>
-                    <span class="badge ${schedule.is_active ? 'badge-active' : 'badge-inactive'}">
-                        ${schedule.is_active ? 'Activo' : 'Inactivo'}
-                    </span>
+                    <div class="schedule-badges">
+                        ${schedule.is_default ? '<span class="badge badge-default">Predeterminado</span>' : ''}
+                        <span class="badge ${schedule.is_active ? 'badge-active' : 'badge-inactive'}">
+                            ${schedule.is_active ? 'Activo' : 'Inactivo'}
+                        </span>
+                    </div>
                 </div>
                 <div class="schedule-details">
                     ${schedule.work_blocks && schedule.work_blocks.length > 0 
@@ -183,6 +186,7 @@ async function loadSchedules() {
                 </div>
                 ${schedule.location ? `<div class="schedule-location" style="color: #6b7280; font-size: 0.9rem; margin-top: 0.25rem;">Ubicacion: ${schedule.location}</div>` : ''}
                 <div class="schedule-actions">
+                    ${!schedule.is_default ? `<button class="btn btn-secondary btn-sm" onclick="setDefault('${schedule.id}')">Marcar como Predeterminado</button>` : ''}
                     <button class="btn btn-secondary" onclick="editSchedule('${schedule.id}')">Editar</button>
                     <button class="btn btn-danger" onclick="deleteSchedule('${schedule.id}')">Eliminar</button>
                 </div>
@@ -320,6 +324,41 @@ async function deleteSchedule(id) {
         showNotification('Error al eliminar horario', 'error');
     }
 }
+
+async function setDefault(id) {
+    try {
+        // First, get all schedules to clear any existing default
+        const response = await fetch('/api/schedules');
+        const schedules = await response.json();
+        
+        // Update all schedules to clear is_default
+        for (const schedule of schedules) {
+            if (schedule.is_default) {
+                await fetch(`/api/schedules/${schedule.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_default: false })
+                });
+            }
+        }
+        
+        // Set the new default
+        const updateResponse = await fetch(`/api/schedules/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_default: true })
+        });
+        
+        if (updateResponse.ok) {
+            loadSchedules();
+            showNotification('Horario predeterminado actualizado', 'success');
+        } else {
+            showNotification('Error al actualizar horario predeterminado', 'error');
+        }
+    } catch (error) {
+        showNotification('Error al actualizar horario predeterminado', 'error');
+    }
+}
 </script>
 
 <style>
@@ -346,6 +385,12 @@ async function deleteSchedule(id) {
     margin-bottom: 1rem;
 }
 
+.schedule-badges {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
 .schedule-details {
     margin-bottom: 1rem;
 }
@@ -360,6 +405,13 @@ async function deleteSchedule(id) {
     gap: 0.5rem;
 }
 
+.badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
 .badge-active {
     background-color: #d1fae5;
     color: #065f46;
@@ -368,6 +420,11 @@ async function deleteSchedule(id) {
 .badge-inactive {
     background-color: #e5e7eb;
     color: #374151;
+}
+
+.badge-default {
+    background-color: #dbeafe;
+    color: #1e40af;
 }
 
 .modal {

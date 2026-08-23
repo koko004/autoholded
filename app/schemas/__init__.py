@@ -30,6 +30,7 @@ class UserConfigUpdate(BaseModel):
     notifications: Optional[Dict[str, Any]] = None
     dashboard_username: Optional[str] = None
     dashboard_password: Optional[str] = None
+    schedule_source: Optional[str] = None  # "schedules" or "calendar"
 
 
 # === Work Schedule Schemas ===
@@ -61,6 +62,7 @@ class WorkScheduleCreate(BaseModel):
     work_blocks: Optional[List[WorkBlock]] = None
     location: Optional[str] = None
     is_active: bool = True
+    is_default: bool = False
 
 
 class WorkScheduleResponse(BaseModel):
@@ -90,6 +92,7 @@ class WorkScheduleUpdate(BaseModel):
     work_blocks: Optional[List[WorkBlock]] = None
     location: Optional[str] = None
     is_active: Optional[bool] = None
+    is_default: Optional[bool] = None
     work_days: Optional[List[int]] = None
 
 
