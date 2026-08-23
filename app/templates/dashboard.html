@@ -217,6 +217,28 @@ function updateTodayUI(status) {
     document.getElementById('total-hours').textContent = `${hours}h ${minutes}m`;
 }
 
+function formatTime(isoStr) {
+    if (!isoStr) return '--:--';
+    try {
+        const d = new Date(isoStr);
+        if (isNaN(d.getTime())) return '--:--';
+        return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    } catch { return '--:--'; }
+}
+
+function formatDuration(entry, exit, pauseMinutes) {
+    if (!entry || !exit) return '--:--';
+    try {
+        const d1 = new Date(entry);
+        const d2 = new Date(exit);
+        if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return '--:--';
+        const total = (d2 - d1) / 1000 / 60 - (pauseMinutes || 0);
+        const hours = Math.floor(total / 60);
+        const minutes = Math.round(total % 60);
+        return `${hours}h ${minutes}m`;
+    } catch { return '--:--'; }
+}
+
 function updateAttendanceTable(attendance) {
     const tbody = document.getElementById('attendance-table');
     if (!attendance || attendance.length === 0) {
@@ -226,22 +248,18 @@ function updateAttendanceTable(attendance) {
     
     tbody.innerHTML = attendance.map(a => `
         <tr>
-            <td>${new Date(a.date).toLocaleDateString()}</td>
-            <td>${a.entry_time ? new Date(a.entry_time).toLocaleTimeString() : '--:--'}</td>
-            <td>${a.exit_time ? new Date(a.exit_time).toLocaleTimeString() : '--:--'}</td>
-            <td>${a.pause_minutes} min</td>
-            <td>${calculateTotal(a.entry_time, a.exit_time, a.pause_minutes)}</td>
+            <td>${new Date(a.date + 'T00:00:00').toLocaleDateString('es-ES')}</td>
+            <td>${formatTime(a.entry_time)}</td>
+            <td>${formatTime(a.exit_time)}</td>
+            <td>${a.pause_minutes || 0} min</td>
+            <td>${formatDuration(a.entry_time, a.exit_time, a.pause_minutes)}</td>
             <td><span class="badge badge-${a.status}">${a.status}</span></td>
         </tr>
     `).join('');
 }
 
 function calculateTotal(entry, exit, pauseMinutes) {
-    if (!entry || !exit) return '--:--';
-    const total = (new Date(exit) - new Date(entry)) / 1000 / 60 - pauseMinutes;
-    const hours = Math.floor(total / 60);
-    const minutes = Math.round(total % 60);
-    return `${hours}h ${minutes}m`;
+    return formatDuration(entry, exit, pauseMinutes);
 }
 
 async function loadDefaultSchedule() {

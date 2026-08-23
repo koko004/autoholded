@@ -79,6 +79,17 @@ body {
     color: white;
 }
 
+.navbar-logout {
+    background-color: #ef4444;
+    color: white !important;
+    font-weight: 600;
+    margin-left: auto;
+}
+
+.navbar-logout:hover {
+    background-color: #dc2626 !important;
+}
+
 /* Container */
 .container {
     max-width: 1200px;

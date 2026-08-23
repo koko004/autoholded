@@ -63,6 +63,7 @@ class WorkScheduleCreate(BaseModel):
     location: Optional[str] = None
     is_active: bool = True
     is_default: bool = False
+    color: Optional[str] = None
 
 
 class WorkScheduleResponse(BaseModel):
@@ -93,6 +94,7 @@ class WorkScheduleUpdate(BaseModel):
     location: Optional[str] = None
     is_active: Optional[bool] = None
     is_default: Optional[bool] = None
+    color: Optional[str] = None
     work_days: Optional[List[int]] = None
 
 
@@ -211,6 +213,8 @@ class SchedulerStatus(BaseModel):
     next_fichaje: Optional[datetime] = None
     last_fichaje: Optional[datetime] = None
     active_jobs: List[str] = []
+    total_jobs: int = 0
+    schedule_source: str = "schedules"
 
 
 class ForceFichajeRequest(BaseModel):

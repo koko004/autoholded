@@ -194,7 +194,8 @@ function renderCalendar() {
         if (assignment) {
             var schedule = schedules.find(function(s) { return s.id === assignment.schedule_id; });
             var scheduleName = schedule ? schedule.name : 'Horario';
-            assignmentBadge = '<span class="assignment-badge">' + scheduleName + '</span>';
+            var scheduleColor = schedule && schedule.color ? schedule.color : '#3b82f6';
+            assignmentBadge = '<span class="assignment-badge" style="background-color: ' + scheduleColor + '; color: white;">' + scheduleName + '</span>';
         }
         
         html += '<div class="' + className + '" data-date="' + dateStr + '" oncontextmenu="showContextMenu(event, \'' + dateStr + '\')">' + day + assignmentBadge + '</div>';
@@ -272,7 +273,8 @@ function showContextMenu(e, dateStr) {
     } else {
         schedulesContainer.innerHTML = '<div class="context-menu-subheader">Asignar horario</div>' +
             schedules.map(function(s) {
-                return '<div class="context-menu-item" onclick="assignSchedule(\'' + s.id + '\', \'' + s.name.replace(/'/g, "\\'") + '\')">' + s.name + '</div>';
+                var color = s.color || '#3b82f6';
+                return '<div class="context-menu-item" onclick="assignSchedule(\'' + s.id + '\', \'' + s.name.replace(/'/g, "\\'") + '\')" style="border-left: 3px solid ' + color + '; padding-left: 8px;">' + s.name + '</div>';
             }).join('');
     }
     
@@ -282,8 +284,15 @@ function showContextMenu(e, dateStr) {
         eventsContainer.style.display = 'block';
         eventsContainer.innerHTML = '<div class="context-menu-subheader">Eventos del dia</div>' +
             dayEvents.map(function(ev) {
+                var badgeStyle = '';
+                if (ev.event_type === 'schedule_assignment' && ev.schedule_id) {
+                    var sch = schedules.find(function(s) { return s.id === ev.schedule_id; });
+                    if (sch && sch.color) {
+                        badgeStyle = ' style="background-color: ' + sch.color + '; color: white;"';
+                    }
+                }
                 return '<div class="context-menu-item context-menu-event">' +
-                    '<span class="badge badge-' + ev.event_type + '">' + eventTypeLabel(ev.event_type) + '</span> ' +
+                    '<span class="badge badge-' + ev.event_type + '"' + badgeStyle + '>' + eventTypeLabel(ev.event_type) + '</span> ' +
                     (ev.description || '') +
                     ' <button class="btn-delete-inline" onclick="deleteEvent(\'' + ev.id + '\')">&#215;</button>' +
                 '</div>';

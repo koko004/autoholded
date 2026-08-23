@@ -814,6 +814,46 @@ async def corregir_fichaje():
         work_blocks=work_blocks,
         location=location
     )
+
+    if result.get("status") == "success":
+        total_minutes = 0
+        pause_minutes = 0
+        first_entry = None
+        last_exit = None
+
+        for block in work_blocks:
+            try:
+                entry_parts = block.get("entry", "0:0").split(":")
+                exit_parts = block.get("exit", "0:0").split(":")
+                entry_mins = int(entry_parts[0]) * 60 + int(entry_parts[1])
+                exit_mins = int(exit_parts[0]) * 60 + int(exit_parts[1])
+                block_minutes = exit_mins - entry_mins
+                block_type = block.get("type", "Trabajado")
+
+                if block_type == "Pausa":
+                    pause_minutes += block_minutes
+                else:
+                    total_minutes += block_minutes
+
+                if first_entry is None or block.get("entry", "") < first_entry:
+                    first_entry = block.get("entry", "")
+                if last_exit is None or block.get("exit", "") > last_exit:
+                    last_exit = block.get("exit", "")
+            except (ValueError, KeyError, IndexError):
+                pass
+
+        save_attendance({
+            "date": target.isoformat(),
+            "location": location,
+            "entry_time": f"{target.isoformat()}T{first_entry}:00" if first_entry else None,
+            "exit_time": f"{target.isoformat()}T{last_exit}:00" if last_exit else None,
+            "pause_minutes": pause_minutes,
+            "total_hours": round(total_minutes / 60, 2),
+            "work_blocks": work_blocks,
+            "status": "completed",
+            "source": "manual"
+        })
+
     await _notify_telegram(f"Corregir fichaje {target.isoformat()}", result)
     return result
 

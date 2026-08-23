@@ -67,6 +67,26 @@
                         Horario activo
                     </label>
                 </div>
+
+                <div class="form-group">
+                    <label for="schedule-color">Color del horario</label>
+                    <div class="color-picker-row">
+                        <input type="color" id="schedule-color" name="color" class="color-input" value="#3b82f6">
+                        <span class="color-hex" id="color-hex-display">#3b82f6</span>
+                    </div>
+                    <div class="color-presets">
+                        <span class="color-preset" data-color="#ef4444" style="background:#ef4444"></span>
+                        <span class="color-preset" data-color="#f97316" style="background:#f97316"></span>
+                        <span class="color-preset" data-color="#eab308" style="background:#eab308"></span>
+                        <span class="color-preset" data-color="#22c55e" style="background:#22c55e"></span>
+                        <span class="color-preset" data-color="#06b6d4" style="background:#06b6d4"></span>
+                        <span class="color-preset" data-color="#3b82f6" style="background:#3b82f6"></span>
+                        <span class="color-preset" data-color="#8b5cf6" style="background:#8b5cf6"></span>
+                        <span class="color-preset" data-color="#ec4899" style="background:#ec4899"></span>
+                        <span class="color-preset" data-color="#14b8a6" style="background:#14b8a6"></span>
+                        <span class="color-preset" data-color="#f43f5e" style="background:#f43f5e"></span>
+                    </div>
+                </div>
                 
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" id="btn-cancel">Cancelar</button>
@@ -88,8 +108,17 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btn-cancel').addEventListener('click', closeModal);
     document.getElementById('schedule-form').addEventListener('submit', saveSchedule);
     document.getElementById('btn-add-block').addEventListener('click', addWorkBlock);
+    document.getElementById('schedule-color').addEventListener('input', function() {
+        document.getElementById('color-hex-display').textContent = this.value;
+    });
+    document.querySelectorAll('.color-preset').forEach(el => {
+        el.addEventListener('click', function() {
+            const color = this.dataset.color;
+            document.getElementById('schedule-color').value = color;
+            document.getElementById('color-hex-display').textContent = color;
+        });
+    });
     
-    // Add initial block
     addWorkBlock();
 });
 
@@ -160,7 +189,7 @@ async function loadSchedules() {
         }
         
         container.innerHTML = schedules.map(schedule => `
-            <div class="card schedule-card">
+            <div class="card schedule-card" ${schedule.color ? `style="border-left: 4px solid ${schedule.color}"` : ''}>
                 <div class="schedule-header">
                     <h3>${schedule.name}</h3>
                     <div class="schedule-badges">
@@ -221,6 +250,9 @@ function openModal(schedule = null) {
         document.getElementById('schedule-name').value = schedule.name;
         document.getElementById('is-active').checked = schedule.is_active;
         document.getElementById('schedule-location').value = schedule.location || '';
+        const color = schedule.color || '#3b82f6';
+        document.getElementById('schedule-color').value = color;
+        document.getElementById('color-hex-display').textContent = color;
         
         // Load work blocks
         if (schedule.work_blocks && schedule.work_blocks.length > 0) {
@@ -274,7 +306,8 @@ async function saveSchedule(e) {
         work_blocks: workBlocks,
         work_days: workDays,
         location: document.getElementById('schedule-location').value || null,
-        is_active: document.getElementById('is-active').checked
+        is_active: document.getElementById('is-active').checked,
+        color: document.getElementById('schedule-color').value
     };
     
     const scheduleId = document.getElementById('schedule-id').value;
@@ -425,6 +458,48 @@ async function setDefault(id) {
 .badge-default {
     background-color: #dbeafe;
     color: #1e40af;
+}
+
+.color-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.color-input {
+    width: 48px;
+    height: 36px;
+    border: 2px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    padding: 0;
+}
+
+.color-hex {
+    font-family: monospace;
+    font-size: 0.9rem;
+    color: var(--text-secondary, #6b7280);
+}
+
+.color-presets {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.color-preset {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 0.15s, border-color 0.15s;
+}
+
+.color-preset:hover {
+    transform: scale(1.2);
+    border-color: #374151;
 }
 
 .modal {
