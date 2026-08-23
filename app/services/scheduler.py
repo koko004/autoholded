@@ -67,10 +67,7 @@ class FichadorScheduler:
             logger.info(f"Removed existing job: {job.id}")
 
         if schedule_source == "calendar":
-            # In calendar mode, we DON'T create cron jobs from active schedules.
-            # The scheduler will check assignments daily via _execute_live_tracking
-            logger.info("Calendar mode: No cron jobs created from active schedules")
-            logger.info("Schedule assignments will be resolved at execution time")
+            self._load_calendar_schedule()
             return
 
         # Schedules mode: create cron jobs from active schedules (original behavior)
@@ -88,6 +85,88 @@ class FichadorScheduler:
         logger.info(f"Total jobs scheduled: {len(jobs)}")
         for job in jobs:
             logger.info(f"  Job: {job.id} -> next run: {job.next_run_time}")
+
+    def _load_calendar_schedule(self):
+        """In calendar mode, determine today's schedule and create jobs for it."""
+        from datetime import date as date_cls
+        today = date_cls.today()
+        today_str = today.isoformat()
+        weekday = today.weekday()
+
+        # Check if today is a holiday or vacation
+        if self._is_holiday_or_vacation(today_str):
+            logger.info(f"Calendar mode: Today ({today_str}) is holiday/vacation, no jobs created")
+            self._add_midnight_reload_job()
+            return
+
+        # Check calendar assignment for today
+        assignment = get_schedule_assignment(today_str)
+        effective_schedule_id = None
+
+        if assignment:
+            effective_schedule_id = assignment.get("schedule_id")
+            logger.info(f"Calendar mode: Found assignment for today: {effective_schedule_id} ({assignment.get('description')})")
+
+        # Fallback to default schedule
+        if not effective_schedule_id:
+            default_schedule = get_default_schedule()
+            if default_schedule:
+                effective_schedule_id = default_schedule.get("id")
+                logger.info(f"Calendar mode: No assignment, using default schedule: {default_schedule.get('name')}")
+            else:
+                logger.warning("Calendar mode: No assignment and no default schedule")
+                self._add_midnight_reload_job()
+                return
+
+        # Get the schedule
+        schedule = get_schedule(effective_schedule_id)
+        if not schedule:
+            logger.error(f"Calendar mode: Schedule {effective_schedule_id} not found")
+            self._add_midnight_reload_job()
+            return
+
+        # Check if today is a workday for this schedule
+        if not self._is_workday(schedule):
+            logger.info("Calendar mode: Today is not a workday for this schedule")
+            self._add_midnight_reload_job()
+            return
+
+        # Create jobs for today's schedule (no day_of_week filter - one-shot for today)
+        logger.info(f"Calendar mode: Creating jobs for schedule '{schedule.get('name')}'")
+        self._add_schedule_jobs_today(schedule)
+
+        # Add midnight reload job for tomorrow
+        self._add_midnight_reload_job()
+
+        jobs = self.scheduler.get_jobs()
+        logger.info(f"Total jobs scheduled: {len(jobs)}")
+        for job in jobs:
+            logger.info(f"  Job: {job.id} -> next run: {job.next_run_time}")
+
+    def _add_midnight_reload_job(self):
+        """Add a one-shot job at 00:05 to reload the calendar schedule for the next day."""
+        from datetime import date as date_cls, timedelta
+        tomorrow = date_cls.today() + timedelta(days=1)
+        reload_date = tomorrow.isoformat()
+
+        # Only add if not already scheduled
+        existing = [j.id for j in self.scheduler.get_jobs() if j.id == "calendar_daily_reload"]
+        if existing:
+            return
+
+        self.scheduler.add_job(
+            self._reload_calendar_schedule,
+            CronTrigger(hour=0, minute=5),
+            id="calendar_daily_reload",
+            replace_existing=True,
+            next_run_time=datetime.combine(tomorrow, time(0, 5))
+        )
+        logger.info(f"Calendar mode: Scheduled daily reload at 00:05 for {reload_date}")
+
+    def _reload_calendar_schedule(self):
+        """Reload schedule jobs for the new day (called at midnight)."""
+        logger.info("=== Calendar daily reload triggered ===")
+        self._load_calendar_schedule()
 
     def _add_schedule_jobs(self, schedule: Dict[str, Any]):
         """
@@ -191,6 +270,92 @@ class FichadorScheduler:
                 replace_existing=True
             )
             logger.info(f"Added STOP job: {schedule_id} at {last_exit}")
+
+    def _add_schedule_jobs_today(self, schedule: Dict[str, Any]):
+        """Add jobs for a schedule for today only (no day_of_week filter).
+        
+        Used in calendar mode to schedule today's assignment.
+        """
+        schedule_id = schedule.get("id")
+        work_blocks = schedule.get("work_blocks", [])
+
+        if not work_blocks:
+            logger.warning(f"Schedule {schedule_id} has no work blocks")
+            return
+
+        logger.info(f"Adding today-only jobs for schedule {schedule_id} ({len(work_blocks)} blocks)")
+
+        from datetime import date as date_cls
+        today = date_cls.today()
+
+        # Job 1: Start tracking at first block entry
+        first_block = work_blocks[0]
+        first_entry = self._parse_time(first_block.get("entry"))
+        if first_entry:
+            job_id = f"cal_{schedule_id}_start"
+            run_dt = datetime.combine(today, first_entry)
+            if run_dt > datetime.now():
+                self.scheduler.add_job(
+                    self._execute_live_tracking,
+                    'date',
+                    run_date=run_dt,
+                    id=job_id,
+                    kwargs={'action': 'start', 'schedule_id': schedule_id},
+                    replace_existing=True
+                )
+                logger.info(f"  START: {run_dt}")
+
+        # Intermediate jobs
+        for i in range(len(work_blocks) - 1):
+            block_exit = self._parse_time(work_blocks[i].get("exit"))
+            next_block = work_blocks[i + 1]
+            next_entry = self._parse_time(next_block.get("entry"))
+            next_type = next_block.get("type", "Trabajado")
+
+            if block_exit:
+                job_id = f"cal_{schedule_id}_block{i}_pause"
+                run_dt = datetime.combine(today, block_exit)
+                if run_dt > datetime.now():
+                    self.scheduler.add_job(
+                        self._execute_live_tracking,
+                        'date',
+                        run_date=run_dt,
+                        id=job_id,
+                        kwargs={'action': 'pause', 'schedule_id': schedule_id},
+                        replace_existing=True
+                    )
+                    logger.info(f"  PAUSE: {run_dt}")
+
+            if next_entry and next_type != "Pausa":
+                job_id = f"cal_{schedule_id}_block{i+1}_resume"
+                run_dt = datetime.combine(today, next_entry)
+                if run_dt > datetime.now():
+                    self.scheduler.add_job(
+                        self._execute_live_tracking,
+                        'date',
+                        run_date=run_dt,
+                        id=job_id,
+                        kwargs={'action': 'start', 'schedule_id': schedule_id},
+                        replace_existing=True
+                    )
+                    logger.info(f"  RESUME: {run_dt}")
+
+        # Final job: Stop tracking at last block exit
+        last_block = work_blocks[-1]
+        last_exit = self._parse_time(last_block.get("exit"))
+        if last_exit:
+            job_id = f"cal_{schedule_id}_stop"
+            run_dt = datetime.combine(today, last_exit)
+            if run_dt > datetime.now():
+                self.scheduler.add_job(
+                    self._execute_live_tracking,
+                    'date',
+                    run_date=run_dt,
+                    id=job_id,
+                    kwargs={'action': 'stop', 'schedule_id': schedule_id},
+                    replace_existing=True
+                )
+                logger.info(f"  STOP: {run_dt}")
 
     def _parse_time(self, time_str) -> Optional[time]:
         """Parse time string like '08:00' or '13:00'."""
